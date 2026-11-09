@@ -59,7 +59,12 @@ export async function startServer(opts: {
   }
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    const url = new URL(req.url ?? "/", "http://localhost");
+    let url: URL;
+    try {
+      url = new URL(req.url ?? "/", "http://localhost");
+    } catch {
+      return send(res, 400, "bad request");
+    }
     if (req.method !== "GET") return send(res, 405, "method not allowed");
     if (url.pathname.startsWith("/api/")) {
       if (!tokenOk(token, url.searchParams.get("token"))) return send(res, 401, "unauthorized");
@@ -70,15 +75,22 @@ export async function startServer(opts: {
   });
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    socket.on("error", () => {}); // reply can hit ECONNRESET; nothing else listens after 'upgrade'
     const reject = (status: number, text: string) => {
       socket.end(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
     };
-    const url = new URL(req.url ?? "/", "http://localhost");
+    let url: URL;
+    try {
+      url = new URL(req.url ?? "/", "http://localhost");
+    } catch {
+      return socket.destroy();
+    }
     if (url.pathname !== "/ws") return reject(404, "Not Found");
     if (!tokenOk(token, url.searchParams.get("token"))) return reject(401, "Unauthorized");
     const origin = req.headers.origin;
     if (!origin || !origins.includes(origin)) return reject(403, "Forbidden");
     wss.handleUpgrade(req, socket, head, (ws) => {
+      ws.on("error", () => {}); // invalid frame / oversized payload: ws closes the socket itself
       ws.send(JSON.stringify({ type: "state", state: store.snapshot() }));
     });
   });
