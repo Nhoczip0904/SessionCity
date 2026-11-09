@@ -187,4 +187,47 @@ describe("Store", () => {
     s.apply({ ...m, branch: "dev" } as Event);
     expect(s.drainDelta()!.sessions[0].branch).toBe("dev");
   });
+
+  it("replayed old events use their own time: one tick -> idle at home", () => {
+    const s = mk();
+    const old = new Date(t - 5 * 60 * MIN).toISOString();
+    s.apply({ kind: "tool", sessionId: "s1", at: old, name: "Read", input: {}, district: "lab" });
+    expect(sess(s).lastActivity).toBe(old);
+    s.apply(usage());
+    s.tick();
+    expect(sess(s)).toMatchObject({ status: "idle", district: "home" });
+  });
+
+  it("replayed events older than 24 h are hidden on first tick", () => {
+    const s = mk();
+    const old = new Date(t - 25 * 60 * MIN).toISOString();
+    s.apply({ kind: "tool", sessionId: "s1", at: old, name: "Read", input: {}, district: "lab" });
+    s.tick();
+    expect(s.snapshot().sessions).toEqual([]);
+  });
+
+  it("hiding a session clears its seen messageIds and pending spawns", () => {
+    const s = mk();
+    s.apply(usage({ messageId: "m1" }));
+    s.apply(spawn());
+    t += 24 * 60 * MIN;
+    s.tick();
+    expect(s.snapshot().sessions).toEqual([]);
+    s.apply(usage({ messageId: "m1" }));
+    expect(sess(s).tokens.input).toBe(1);
+    s.apply(agentMeta());
+    expect(s.snapshot().employees[0].prompt).toBe("");
+  });
+
+  it("session going idle finishes its working employees; removed 30 s later", () => {
+    const s = mk();
+    s.apply(agentMeta());
+    t += 10 * MIN;
+    s.tick();
+    expect(s.snapshot().employees[0].status).toBe("done");
+    expect(s.snapshot().employees[0].endedAt).toBeDefined();
+    t += 30_000;
+    s.tick();
+    expect(s.snapshot().employees).toEqual([]);
+  });
 });
