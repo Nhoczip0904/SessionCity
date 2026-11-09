@@ -22,9 +22,9 @@ describe("at on meta/usage", () => {
 describe("parseLine", () => {
   it("user text → prompt", () => {
     const l = line({ type: "user", message: { role: "user", content: "hello" } });
-    expect(parseLine(l, ctx, rules)).toEqual([{ kind: "prompt", sessionId: "s1", at: T }]);
+    expect(parseLine(l, ctx, rules)).toEqual([{ kind: "prompt", sessionId: "s1", at: T, text: "hello" }]);
     const b = line({ type: "user", message: { role: "user", content: [{ type: "text", text: "hi" }] } });
-    expect(parseLine(b, ctx, rules)).toEqual([{ kind: "prompt", sessionId: "s1", at: T }]);
+    expect(parseLine(b, ctx, rules)).toEqual([{ kind: "prompt", sessionId: "s1", at: T, text: "hi" }]);
   });
 
   it("isMeta user and subagent user are not prompts", () => {
@@ -128,7 +128,7 @@ describe("parseLine", () => {
   });
   it("extra unknown fields ignored", () => {
     const l = line({ type: "user", zzz: { a: 1 }, message: { content: "hi", extra: [1] } });
-    expect(parseLine(l, ctx, rules)).toEqual([{ kind: "prompt", sessionId: "s1", at: T }]);
+    expect(parseLine(l, ctx, rules)).toEqual([{ kind: "prompt", sessionId: "s1", at: T, text: "hi" }]);
   });
 });
 

@@ -1,6 +1,10 @@
-import type { Delta, Employee, Event, Session, State, TokenCounts, Tokens } from "../shared/types.js";
+import type {
+  Delta, Employee, EmployeeDetail, Event, Session, SessionDetail, State, TokenCounts, Tokens, ToolStep,
+} from "../shared/types.js";
+import { summarize } from "./summary.js";
 
 const MAX = 4096;
+const STEPS = 100;
 const IDLE_MS = 10 * 60_000;
 const HIDE_MS = 24 * 60 * 60_000;
 const DONE_MS = 30_000;
@@ -16,6 +20,7 @@ const addUsage = (t: Tokens, model: string, u: TokenCounts) => {
   add((t.byModel[model] ??= zero()), u);
 };
 
+interface Extra { steps: ToolStep[]; report?: string; models: string[] } // oldest first
 interface Pending { sessionId: string; type: string; description: string; prompt: string }
 
 export class Store {
@@ -25,6 +30,9 @@ export class Store {
   private endedAt = new Map<string, number>(); // agentId -> now() ms
   private pending = new Map<string, Pending>(); // toolUseId -> spawn info
   private seen = new Map<string, Set<string>>(); // sessionId -> counted messageIds
+  private mayorSteps = new Map<string, ToolStep[]>(); // sessionId -> steps, oldest first
+  private lastPrompt = new Map<string, string>();
+  private extra = new Map<string, Extra>(); // agentId -> detail-only data
   private dirtyS = new Set<string>();
   private dirtyE = new Set<string>();
   private removed: string[] = [];
@@ -94,17 +102,26 @@ export class Store {
     this.activity(s, e.at);
     switch (e.kind) {
       case "prompt":
+        this.lastPrompt.set(s.id, cut(e.text));
         s.status = "working"; s.district = "townhall";
         break;
-      case "tool":
+      case "tool": {
+        const step: ToolStep = { at: e.at, name: e.name, summary: summarize(e.name, e.input), district: e.district };
+        let steps: ToolStep[];
         if (e.agentId) {
           const emp = this.employee(e.sessionId, e.agentId, e.at);
           if (e.district) emp.district = e.district;
+          steps = this.extraOf(e.agentId).steps;
         } else {
+          steps = this.mayorSteps.get(s.id) ?? [];
+          this.mayorSteps.set(s.id, steps);
           s.status = "working";
           if (e.district) s.district = e.district;
         }
+        steps.push(step);
+        if (steps.length > STEPS) steps.shift();
         break;
+      }
       case "spawn": {
         s.status = "working";
         const p: Pending = { sessionId: e.sessionId, type: cut(e.type), description: cut(e.description), prompt: cut(e.prompt) };
@@ -129,7 +146,10 @@ export class Store {
       }
       case "report": {
         const emp = [...this.employees.values()].find((x) => x.toolUseId === e.toolUseId && e.toolUseId !== "");
-        if (emp) this.finish(emp, e.at);
+        if (emp) {
+          this.extraOf(emp.id).report = cut(e.text);
+          this.finish(emp, e.at);
+        }
         break;
       }
       case "turnEnd":
@@ -144,11 +164,21 @@ export class Store {
           ids.add(e.messageId);
         }
         addUsage(s.tokens, e.model, e.usage);
-        if (e.agentId) addUsage(this.employee(e.sessionId, e.agentId, "").tokens, e.model, e.usage);
+        if (e.agentId) {
+          addUsage(this.employee(e.sessionId, e.agentId, "").tokens, e.model, e.usage);
+          const m = this.extraOf(e.agentId).models;
+          if (!m.includes(e.model)) m.push(e.model);
+        }
         else s.model = cut(e.model);
         break;
       }
     }
+  }
+
+  private extraOf(agentId: string): Extra {
+    let x = this.extra.get(agentId);
+    if (!x) this.extra.set(agentId, (x = { steps: [], models: [] }));
+    return x;
   }
 
   private finish(emp: Employee, at: string) {
@@ -165,7 +195,7 @@ export class Store {
       if (age >= HIDE_MS) {
         for (const a of s.employees) this.dropEmployee(a, false);
         this.sessions.delete(id); this.lastEvent.delete(id); this.dirtyS.delete(id);
-        this.seen.delete(id);
+        this.seen.delete(id); this.mayorSteps.delete(id); this.lastPrompt.delete(id);
         for (const [k, p] of this.pending) if (p.sessionId === id) this.pending.delete(k);
         this.removed.push(id);
       } else if (age >= IDLE_MS && s.status !== "idle") {
@@ -187,7 +217,7 @@ export class Store {
   private dropEmployee(id: string, detach: boolean) {
     const e = this.employees.get(id);
     if (!e) return;
-    this.employees.delete(id); this.endedAt.delete(id); this.dirtyE.delete(id);
+    this.employees.delete(id); this.extra.delete(id); this.endedAt.delete(id); this.dirtyE.delete(id);
     this.removed.push(id);
     if (detach) {
       const s = this.sessions.get(e.sessionId);
@@ -200,6 +230,25 @@ export class Store {
       sessions: structuredClone([...this.sessions.values()]),
       employees: structuredClone([...this.employees.values()]),
     };
+  }
+
+  detailSession(id: string): SessionDetail | undefined {
+    const s = this.sessions.get(id);
+    if (!s) return undefined;
+    const staff = s.employees.map((a) => this.employees.get(a)).filter((e): e is Employee => !!e);
+    const d: SessionDetail = { ...s, steps: [...(this.mayorSteps.get(id) ?? [])].reverse(), staff };
+    const p = this.lastPrompt.get(id);
+    if (p !== undefined) d.lastPrompt = p;
+    return structuredClone(d);
+  }
+
+  detailEmployee(id: string): EmployeeDetail | undefined {
+    const e = this.employees.get(id);
+    if (!e) return undefined;
+    const x = this.extra.get(id);
+    const d: EmployeeDetail = { ...e, models: [...(x?.models ?? [])], steps: [...(x?.steps ?? [])].reverse() };
+    if (x?.report !== undefined) d.report = x.report;
+    return structuredClone(d);
   }
 
   drainDelta(): Delta | null {

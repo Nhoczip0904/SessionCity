@@ -31,7 +31,7 @@ describe("Store", () => {
 
   it("project falls back to sessionId prefix without cwd", () => {
     const s = mk();
-    s.apply({ kind: "prompt", sessionId: "abcdef123456", at: AT });
+    s.apply({ kind: "prompt", sessionId: "abcdef123456", at: AT, text: "" });
     expect(sess(s, "abcdef123456").project).toBe("abcdef12");
   });
 
@@ -295,5 +295,91 @@ describe("Store", () => {
     s.apply({ kind: "meta", sessionId: "s1", at: AT, cwd: "/a/p" });
     s.apply(usage());
     expect(sess(s).status).toBe("waiting");
+  });
+
+  describe("detail", () => {
+    const step = (n: number, extra: object = {}) => tool("library", { name: "Bash", input: { command: `#${n}` }, ...extra });
+    const prompt = (text: string): Event => ({ kind: "prompt", sessionId: "s1", at: AT, text });
+
+    it("keeps the 100 newest mayor steps, newest first", () => {
+      const s = mk();
+      for (let i = 1; i <= 150; i++) s.apply(step(i));
+      const d = s.detailSession("s1")!;
+      expect(d.steps).toHaveLength(100);
+      expect(d.steps[0].summary).toBe("#150");
+      expect(d.steps[99].summary).toBe("#51");
+    });
+
+    it("employee steps are separate from mayor steps", () => {
+      const s = mk();
+      s.apply(step(1));
+      s.apply(step(2, { agentId: "a1" }));
+      expect(s.detailSession("s1")!.steps.map((x) => x.summary)).toEqual(["#1"]);
+      expect(s.detailEmployee("a1")!.steps.map((x) => x.summary)).toEqual(["#2"]);
+    });
+
+    it("step summary and district come from summarize/classify", () => {
+      const s = mk();
+      s.apply(tool("lab", { name: "Read", input: { file_path: "/a/b.ts" } }));
+      s.apply(tool(null, { name: "Bash", input: { command: "ls" } }));
+      expect(s.detailSession("s1")!.steps).toEqual([
+        { at: AT, name: "Bash", summary: "ls", district: null },
+        { at: AT, name: "Read", summary: "/a/b.ts", district: "lab" },
+      ]);
+    });
+
+    it("report text attaches to the matching employee", () => {
+      const s = mk();
+      s.apply(spawn()); s.apply(agentMeta());
+      expect(s.detailEmployee("a1")!.report).toBeUndefined();
+      s.apply({ kind: "report", sessionId: "s1", at: AT, toolUseId: "tu1", text: "found it" });
+      expect(s.detailEmployee("a1")!.report).toBe("found it");
+      s.apply({ kind: "report", sessionId: "s1", at: AT, toolUseId: "other", text: "nope" });
+      expect(s.detailEmployee("a1")!.report).toBe("found it");
+    });
+
+    it("lastPrompt is the latest prompt text, cut to 4096 + …", () => {
+      const s = mk();
+      s.apply(prompt("first"));
+      s.apply(prompt("second"));
+      expect(s.detailSession("s1")!.lastPrompt).toBe("second");
+      s.apply(prompt("x".repeat(5000)));
+      expect(s.detailSession("s1")!.lastPrompt).toBe("x".repeat(4096) + "…");
+    });
+
+    it("models are distinct in first-seen order", () => {
+      const s = mk();
+      const m = (id: string, model: string) => usage({ agentId: "a1", messageId: id, model });
+      s.apply(m("1", "opus")); s.apply(m("2", "haiku")); s.apply(m("3", "opus"));
+      expect(s.detailEmployee("a1")!.models).toEqual(["opus", "haiku"]);
+    });
+
+    it("detailSession includes done staff still present", () => {
+      const s = mk();
+      s.apply(spawn()); s.apply(agentMeta());
+      s.apply({ kind: "turnEnd", sessionId: "s1", agentId: "a1", at: AT });
+      const d = s.detailSession("s1")!;
+      expect(d.employees).toEqual(["a1"]);
+      expect(d.staff.map((e) => [e.id, e.status])).toEqual([["a1", "done"]]);
+      t += 31_000; s.tick();
+      expect(s.detailSession("s1")!.staff).toEqual([]);
+      expect(s.detailEmployee("a1")).toBeUndefined();
+    });
+
+    it("unknown ids → undefined", () => {
+      const s = mk();
+      expect(s.detailSession("nope")).toBeUndefined();
+      expect(s.detailEmployee("nope")).toBeUndefined();
+    });
+
+    it("snapshot/delta do not contain steps or report", () => {
+      const s = mk();
+      s.apply(prompt("hi")); s.apply(step(1)); s.apply(step(2, { agentId: "a1" }));
+      s.apply(spawn()); s.apply(agentMeta());
+      s.apply({ kind: "report", sessionId: "s1", at: AT, toolUseId: "tu1", text: "r" });
+      s.apply(usage({ agentId: "a1" }));
+      const j = JSON.stringify([s.snapshot(), s.drainDelta()]);
+      for (const k of ["steps", "report", "models", "lastPrompt"]) expect(j).not.toContain(k);
+    });
   });
 });
