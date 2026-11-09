@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdtempSync, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, readdirSync, statSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildLaunch, findOnPath, launch, settingsJson, validateLaunch } from "../src/server/launch.js";
@@ -23,6 +23,11 @@ describe("validateLaunch", () => {
   it("rejects UNC \\\\server\\share", () => {
     expect(err({ cwd: "\\\\server\\share" })).toContain("UNC");
     err({ cwd: "//server/share" });
+  });
+  it("rejects cwd ending in space or dot, but accepts a drive root", () => {
+    expect(err({ cwd: "D:\\p " })).toContain("dấu cách");
+    err({ cwd: "D:\\p." });
+    expect(validateLaunch({ cwd: "D:\\" }, yes).ok).toBe(true);
   });
   it("rejects non-string cwd", () => err({ cwd: 5 }));
   it("rejects NUL in cwd", () => err({ cwd: "D:\\p\u0000x" }));
@@ -154,6 +159,18 @@ describe("launch", () => {
     expect(existsSync(jobFile)).toBe(false);
     expect(existsSync(job.settingsFile)).toBe(false);
     s.timers[0].fn(); // already gone: no throw
+  });
+
+  it("fallback timer keeps settings file when the launcher already ran (job file gone)", async () => {
+    const s = setup();
+    const p = launch({ cwd: "D:\\p", subagentModel: "haiku" }, deps(s));
+    s.child.emit("spawn");
+    await p;
+    const jobFile = argsOf(s).at(-1) as string;
+    const settings = JSON.parse(readFileSync(jobFile, "utf8")).settingsFile as string;
+    rmSync(jobFile); // launcher consumed the job
+    s.timers[0].fn();
+    expect(existsSync(settings)).toBe(true);
   });
 
   it("spawn error → rejects and removes job and settings", async () => {

@@ -45,7 +45,12 @@ function select(cls: string, options: [string, string][]): HTMLSelectElement {
 }
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") document.querySelectorAll(".dialog").forEach((d) => d.remove());
+  if (e.key !== "Escape") return;
+  const open = document.querySelectorAll(".dialog");
+  if (!open.length) return;
+  open.forEach((d) => d.remove());
+  e.stopImmediatePropagation(); // registered before the panel's listener: Esc closes the dialog only
+
 });
 
 /** Show a dialog; closes any other one; focuses the first field. */
@@ -111,7 +116,7 @@ export function renderModelRules(state: ExploreState, onToggle: (enabled: boolea
   };
   const label = el("label", "Explore dùng Haiku", "check");
   label.prepend(cb);
-  return frame("Quy tắc model", label, el("div", "Áp dụng cho phiên mở sau khi bật", "note"), msg);
+  return frame("Quy tắc model", label, el("div", "Áp dụng cho phiên mở sau khi bật; phiên đang chạy dùng cấu hình cũ.", "note"), msg);
 }
 
 /** Open the rules dialog: "Đang tải…" first, then the fetched state (or the error). */
