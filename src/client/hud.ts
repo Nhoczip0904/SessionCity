@@ -1,0 +1,28 @@
+import type { Session } from "../shared/types.js";
+import type { Conn } from "./net.js";
+
+const $ = (id: string) => document.getElementById(id)!;
+const CONN_TEXT: Record<Conn, string> = {
+  connecting: "Đang kết nối…",
+  open: "Đã kết nối",
+  closed: "Mất kết nối — đang thử lại",
+  auth: "Thiếu token",
+};
+
+export function createHud() {
+  return {
+    setCounts(sessions: Session[]) {
+      for (const k of ["working", "waiting", "idle"] as const) $(`n-${k}`).textContent = String(sessions.filter((s) => s.status === k).length);
+    },
+    setConn(c: Conn) {
+      const dot = $("conn");
+      dot.className = `dot ${c}`;
+      dot.title = CONN_TEXT[c];
+    },
+    setHint(text: string | null) {
+      const el = $("hint");
+      el.textContent = text ?? "";
+      el.hidden = !text;
+    },
+  };
+}
