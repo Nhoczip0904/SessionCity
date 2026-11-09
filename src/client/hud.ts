@@ -9,7 +9,9 @@ const CONN_TEXT: Record<Conn, string> = {
   auth: "Thiếu token",
 };
 
-export function createHud() {
+export function createHud(on: { launch: () => void; rules: () => void }) {
+  $("btn-launch").onclick = on.launch;
+  $("btn-rules").onclick = on.rules;
   return {
     setCounts(sessions: Session[]) {
       for (const k of ["working", "waiting", "idle"] as const) $(`n-${k}`).textContent = String(sessions.filter((s) => s.status === k).length);

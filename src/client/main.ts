@@ -3,6 +3,7 @@ import type { Employee, Session } from "../shared/types.js";
 import { Actors } from "./actors.js";
 import { TILE, buildCity } from "./city.js";
 import { createHud } from "./hud.js";
+import { renderLaunchDialog, showDialog, showRules, type ExploreState, type LaunchOpts } from "./launcher.js";
 import { connect } from "./net.js";
 import { Panel, type Detail, type Kind } from "./panel.js";
 import { loadSheets } from "./tiles.js";
@@ -76,6 +77,27 @@ async function main() {
     if (!res.ok) throw new Error(String(res.status));
     return (await res.json()) as Detail;
   };
+  /** JSON call to a token-guarded endpoint → parsed body, or a Vietnamese error message. */
+  const send = async (method: string, path: string, body?: LaunchOpts | { enabled: boolean }): Promise<{ state: ExploreState } | string> => {
+    let res: Response;
+    try {
+      res = await fetch(`${path}?token=${encodeURIComponent(token)}`, {
+        method,
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch {
+      return "Không kết nối được server";
+    }
+    let data: { error?: string; state?: ExploreState } | null = null;
+    try {
+      data = await res.json();
+    } catch {
+      /* non-JSON body */
+    }
+    if (!res.ok) return data?.error ?? `Lỗi ${res.status}`;
+    return { state: data?.state as ExploreState };
+  };
   const panelRoot = document.getElementById("panel")!;
   const panel = new Panel(panelRoot, fetchDetail);
   const onPick = (kind: Kind, id: string) => {
@@ -89,9 +111,19 @@ async function main() {
     traffic.update(t.deltaMS);
   });
 
-  const hud = createHud();
   const sessions = new Map<string, Session>();
   const employees = new Map<string, Employee>();
+  const hud = createHud({
+    launch: () => {
+      const folders = [...new Set([...sessions.values()].map((s) => s.cwd).filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
+      showDialog(renderLaunchDialog(folders, (o) => send("POST", "/api/launch", o).then((r) => (typeof r === "string" ? r : null))));
+    },
+    rules: () =>
+      void showRules(
+        () => send("GET", "/api/agents/explore").then((r) => (typeof r === "string" ? r : r.state)),
+        (enabled) => send("PUT", "/api/agents/explore", { enabled }).then((r) => (typeof r === "string" ? r : r.state)),
+      ),
+  });
   const apply = () => {
     const state = { sessions: [...sessions.values()], employees: [...employees.values()] };
     actors.sync(state);
