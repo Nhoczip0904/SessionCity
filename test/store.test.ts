@@ -13,7 +13,7 @@ const tool = (district: any, extra: object = {}): Event =>
   ({ kind: "tool", sessionId: "s1", at: AT, name: "Read", input: {}, district, ...extra }) as Event;
 const u = (n: number) => ({ input: n, output: n * 2, cacheRead: 0, cacheWrite: 1 });
 const usage = (extra: object = {}): Event =>
-  ({ kind: "usage", sessionId: "s1", messageId: "m1", model: "opus", usage: u(1), ...extra }) as Event;
+  ({ kind: "usage", sessionId: "s1", at: AT, messageId: "m1", model: "opus", usage: u(1), ...extra }) as Event;
 const spawn = (): Event =>
   ({ kind: "spawn", sessionId: "s1", at: AT, toolUseId: "tu1", type: "Explore", description: "desc", prompt: "do it" });
 const agentMeta = (): Event =>
@@ -23,7 +23,7 @@ const sess = (s: Store, id = "s1") => s.snapshot().sessions.find((x) => x.id ===
 describe("Store", () => {
   it("tool moves mayor to the classified district and marks working", () => {
     const s = mk();
-    s.apply({ kind: "meta", sessionId: "s1", cwd: ["C:", "code", "my-proj"].join(String.fromCharCode(92)) });
+    s.apply({ kind: "meta", sessionId: "s1", at: AT, cwd: ["C:", "code", "my-proj"].join(String.fromCharCode(92)) });
     s.apply({ kind: "turnEnd", sessionId: "s1", at: AT });
     s.apply(tool("library"));
     expect(sess(s)).toMatchObject({ project: "my-proj", district: "library", status: "working" });
@@ -68,8 +68,8 @@ describe("Store", () => {
 
   it("two sessions in the same cwd are two sessions", () => {
     const s = mk();
-    s.apply({ kind: "meta", sessionId: "s1", cwd: "/a/p" });
-    s.apply({ kind: "meta", sessionId: "s2", cwd: "/a/p" });
+    s.apply({ kind: "meta", sessionId: "s1", at: AT, cwd: "/a/p" });
+    s.apply({ kind: "meta", sessionId: "s2", at: AT, cwd: "/a/p" });
     expect(s.snapshot().sessions.map((x) => x.id).sort()).toEqual(["s1", "s2"]);
   });
 
@@ -179,7 +179,7 @@ describe("Store", () => {
 
   it("meta repeated with same values → drainDelta null", () => {
     const s = mk();
-    const m: Event = { kind: "meta", sessionId: "s1", cwd: "/a/p", branch: "main", title: "T" };
+    const m: Event = { kind: "meta", sessionId: "s1", at: AT, cwd: "/a/p", branch: "main", title: "T" };
     s.apply(m);
     expect(s.drainDelta()).not.toBeNull();
     s.apply(m);
@@ -193,7 +193,7 @@ describe("Store", () => {
     const old = new Date(t - 5 * 60 * MIN).toISOString();
     s.apply({ kind: "tool", sessionId: "s1", at: old, name: "Read", input: {}, district: "lab" });
     expect(sess(s).lastActivity).toBe(old);
-    s.apply(usage());
+    s.apply(usage({ at: old }));
     s.tick();
     expect(sess(s)).toMatchObject({ status: "idle", district: "home" });
   });
@@ -229,5 +229,34 @@ describe("Store", () => {
     t += 30_000;
     s.tick();
     expect(s.snapshot().employees).toEqual([]);
+  });
+
+  it("real replay order meta -> usage -> tool, hours old: idle at home after one tick", () => {
+    const s = mk();
+    const old = new Date(t - 5 * 60 * MIN).toISOString();
+    s.apply({ kind: "meta", sessionId: "s1", at: old, cwd: "/a/p" });
+    s.apply(usage({ at: old }));
+    s.apply({ kind: "tool", sessionId: "s1", at: old, name: "Read", input: {}, district: "lab" });
+    s.tick();
+    expect(sess(s)).toMatchObject({ status: "idle", district: "home", lastActivity: old });
+  });
+
+  it("real replay order, >24 h old: hidden and in removed", () => {
+    const s = mk();
+    const old = new Date(t - 25 * 60 * MIN).toISOString();
+    s.apply({ kind: "meta", sessionId: "s1", at: old, cwd: "/a/p" });
+    s.apply(usage({ at: old }));
+    s.apply({ kind: "tool", sessionId: "s1", at: old, name: "Read", input: {}, district: "lab" });
+    s.tick();
+    expect(s.snapshot().sessions).toEqual([]);
+    expect(s.drainDelta()!.removed).toContain("s1");
+  });
+
+  it("meta and usage alone do not mark a session working", () => {
+    const s = mk();
+    s.apply({ kind: "turnEnd", sessionId: "s1", at: AT });
+    s.apply({ kind: "meta", sessionId: "s1", at: AT, cwd: "/a/p" });
+    s.apply(usage());
+    expect(sess(s).status).toBe("waiting");
   });
 });

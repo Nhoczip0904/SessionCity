@@ -67,21 +67,17 @@ export class Store {
     return Number.isFinite(p) ? Math.min(p, this.now()) : this.now();
   }
 
-  // at undefined (usage events carry no time): keep the last known activity time
-  private activity(s: Session, at?: string) {
-    if (at !== undefined) {
-      const prev = this.lastEvent.get(s.id) ?? 0;
-      const m = this.ms(at);
-      if (m > prev) {
-        this.lastEvent.set(s.id, m);
-        s.lastActivity = new Date(m).toISOString();
-      }
+  private activity(s: Session, at: string) {
+    const m = this.ms(at);
+    if (m > (this.lastEvent.get(s.id) ?? 0)) {
+      this.lastEvent.set(s.id, m);
+      s.lastActivity = new Date(m).toISOString();
     }
     this.dirtyS.add(s.id);
   }
 
   apply(e: Event): void {
-    const s = this.session(e.sessionId, "at" in e ? e.at : undefined);
+    const s = this.session(e.sessionId, e.at);
     if (e.kind === "meta") {
       let changed = false;
       const set = <K extends "title" | "branch" | "cwd">(k: K, v: string | undefined) => {
@@ -95,7 +91,7 @@ export class Store {
       if (changed) this.dirtyS.add(s.id);
       return;
     }
-    this.activity(s, "at" in e ? e.at : undefined);
+    this.activity(s, e.at);
     switch (e.kind) {
       case "prompt":
         s.status = "working"; s.district = "townhall";
