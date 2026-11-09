@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BackendCity</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #2f4a2a; }
+      body { font: 13px Consolas, "DejaVu Sans Mono", "Courier New", monospace; color: #eee; }
+      #app canvas { display: block; image-rendering: pixelated; }
+      #hud {
+        position: fixed; top: 0; left: 0; right: 0; height: 32px; box-sizing: border-box;
+        display: flex; align-items: center; gap: 18px; padding: 0 12px;
+        background: #1c1c22; border-bottom: 2px solid #000;
+      }
+      #hud b { color: #fff; }
+      .dot { width: 10px; height: 10px; border-radius: 50%; background: #888; margin-left: auto; }
+      .dot.open { background: #4caf50; }
+      .dot.connecting, .dot.closed { background: #f0a030; }
+      .dot.auth { background: #e04040; }
+      .working { color: #8fd18f; } .waiting { color: #ffd23f; } .idle { color: #9ad0ff; }
+      #hint {
+        position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 90vw;
+        padding: 10px 16px; background: rgba(20, 20, 26, 0.9); border: 2px solid #000; text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud" role="status">
+      <span>BackendCity</span>
+      <span class="working">Đang làm <b id="n-working">0</b></span>
+      <span class="waiting">Chờ bạn <b id="n-waiting">0</b></span>
+      <span class="idle">Nghỉ <b id="n-idle">0</b></span>
+      <span id="conn" class="dot connecting" title="Đang kết nối…"></span>
+    </div>
+    <div id="hint" hidden></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
