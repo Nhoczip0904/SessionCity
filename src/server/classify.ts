@@ -14,9 +14,14 @@ export function loadRules(json: unknown): Rule[] {
     const n = i + 1;
     if (!r || typeof r !== "object" || !DISTRICTS.some((d) => d.id === r.district))
       throw new Error(`districts.json: rule ${n} has unknown district`);
+    const bad = Object.keys(r).find((k) => k !== "district" && !(FIELDS as readonly string[]).includes(k));
+    if (bad) throw new Error(`districts.json: rule ${n} has unknown key "${bad}"`);
+    if (!FIELDS.some((f) => r[f] !== undefined))
+      throw new Error(`districts.json: rule ${n} needs at least one of tool/command/path`);
     const c: Compiled = { district: r.district };
     for (const f of FIELDS) {
       if (r[f] === undefined) continue;
+      if (typeof r[f] !== "string") throw new Error(`districts.json: rule ${n} "${f}" must be a string`);
       try {
         c[f] = new RegExp(r[f], "i");
       } catch {
