@@ -2,8 +2,11 @@ import { Container, Graphics, Rectangle, Sprite, Text, type Texture } from "pixi
 import type { District, Employee, Session, State } from "../shared/types.js";
 import { TILE, type buildCity } from "./city.js";
 import { findPath, type Pt } from "./path.js";
+import * as K from "./tiles.js";
+import type { Outfit, Sheets } from "./tiles.js";
 
 type City = ReturnType<typeof buildCity>;
+export type PickKind = "session" | "employee";
 const SPEED = 6 / 1000; // tiles per ms
 const MAX_EMPLOYEES = 8;
 const PALETTE = [0xe6194b, 0x3cb44b, 0xffe119, 0x4363d8, 0xf58231, 0x911eb4, 0x46f0f0, 0xf032e6, 0xbcf60c, 0xfabebe, 0x008080, 0xe6beff];
@@ -45,8 +48,18 @@ function figure(body: number, small: boolean): Graphics {
   return g;
 }
 
+const outfitFor = (type: string): Outfit =>
+  type === "Explore" ? K.OUTFIT_EXPLORE
+  : type === "Plan" ? K.OUTFIT_PLAN
+  : type === "general-purpose" ? K.OUTFIT_GENERAL
+  : /review/i.test(type) ? K.OUTFIT_REVIEW
+  : /test/i.test(type) ? K.OUTFIT_TEST
+  : K.OUTFIT_OTHER;
+
 interface Actor {
   c: Container;
+  fig: Container; // the figure itself; flipped to face the walking direction
+  look: string; // what the figure was built from, to rebuild it when that changes
   label: Text;
   badge?: Text;
   tx: number; ty: number; // tile position (float while walking)
@@ -60,10 +73,29 @@ export class Actors {
   private slots = new Map<string, number>();
   private more = new Map<string, Text>();
   private textures = new Map<string, Texture>();
+  private hqOwner: (string | undefined)[] = [];
+  private hqHits: Container[];
   private clock = 0;
 
-  constructor(private city: City, private layer: Container, private bake: (g: Graphics) => Texture) {
+  constructor(
+    private city: City,
+    private layer: Container,
+    private bake: (g: Graphics) => Texture,
+    private sheets: Sheets | null,
+    private onPick: (kind: PickKind, id: string) => void,
+  ) {
     layer.sortableChildren = true;
+    // HQ houses: clicking one picks the session living there
+    this.hqHits = city.hqPlots.map((r, i) => {
+      const h = new Container();
+      h.hitArea = new Rectangle(r.x, r.y, r.w, r.h);
+      h.cursor = "pointer";
+      h.eventMode = "none";
+      h.zIndex = -1;
+      h.on("pointertap", () => { const id = this.hqOwner[i]; if (id) this.onPick("session", id); });
+      layer.addChild(h);
+      return h;
+    });
   }
 
   private tex(color: number, small: boolean): Texture {
@@ -73,23 +105,56 @@ export class Actors {
     return t;
   }
 
-  private make(at: Pt, tex: Texture, labelText: string, hoverLabel: boolean): Actor {
+  /** Part 1 figure without sheets, else layered Kenney sprites (16×16, feet at the origin). */
+  private figure(slot: number, outfit: Outfit, small: boolean): Container {
+    if (!this.sheets) {
+      const base = PALETTE[slot % PALETTE.length];
+      const spr = new Sprite(this.tex(small ? shade(base, 0.45) : base, small));
+      spr.anchor.set(0.5, 1);
+      return spr;
+    }
+    const s = this.sheets;
+    const [bc, br] = K.SHIRT_COLORS[slot % K.SHIRT_COLORS.length];
+    const shirt: K.Frame = outfit.own ? [bc + outfit.shirt[0], br + outfit.shirt[1]] : outfit.shirt;
+    const fig = new Container();
+    for (const f of [K.CHAR_BODY, K.PANTS, K.SHOES, shirt, outfit.hair, outfit.hat, outfit.item]) {
+      if (!f) continue;
+      const spr = new Sprite(s.char(f[0], f[1]));
+      spr.position.set(-8, -16);
+      fig.addChild(spr);
+    }
+    return fig;
+  }
+
+  private make(at: Pt, labelText: string, pick: () => void, hoverLabel: boolean): Actor {
     const c = new Container();
-    const spr = new Sprite(tex);
-    spr.anchor.set(0.5, 1);
     const label = new Text({ text: labelText, ...LIVE_TEXT });
     label.anchor.set(0.5, 1);
-    label.y = -spr.height - 1;
-    c.addChild(spr, label);
+    c.addChild(label);
+    c.eventMode = "static";
+    c.cursor = "pointer";
+    c.on("pointertap", pick);
     if (hoverLabel) {
       label.visible = false;
-      c.eventMode = "static";
-      c.hitArea = new Rectangle(-4, -10, 8, 11);
       c.on("pointerover", () => { label.visible = true; c.zIndex = 1e6; });
       c.on("pointerout", () => (label.visible = false));
     }
     this.layer.addChild(c);
-    return { c, label, tx: at.x, ty: at.y, path: [] };
+    return { c, fig: c, look: "", label, tx: at.x, ty: at.y, path: [] };
+  }
+
+  /** (Re)builds the figure when its look changes, e.g. an employee's type gets refined. */
+  private dress(a: Actor, look: string, build: () => Container) {
+    if (a.look === look) return;
+    if (a.fig !== a.c) a.fig.destroy({ children: true });
+    const fig = build();
+    a.c.addChildAt(fig, 0);
+    a.fig = fig;
+    a.look = look;
+    const h = fig.height, w = fig.width;
+    a.label.y = -h - 1;
+    if (a.badge) a.badge.y = a.label.y - 8;
+    a.c.hitArea = new Rectangle(-w / 2, -h, w, h);
   }
 
   private goTo(a: Actor, to: Pt) {
@@ -113,6 +178,7 @@ export class Actors {
     for (const [id, t] of this.more) if (!live.has(id)) { t.destroy(); this.more.delete(id); }
 
     const byId = new Map<string, Session>();
+    this.hqOwner = [];
     for (const s of state.sessions) {
       byId.set(s.id, s);
       let slot = this.slots.get(s.id);
@@ -121,24 +187,31 @@ export class Actors {
         for (slot = 0; used.has(slot); slot++);
         this.slots.set(s.id, slot);
       }
-      const hq = this.city.hqDoors[slot % this.city.hqDoors.length];
+      const hqIdx = slot % this.city.hqDoors.length;
+      this.hqOwner[hqIdx] ??= s.id;
+      const hq = this.city.hqDoors[hqIdx];
       let m = this.mayors.get(s.id);
-      if (!m) this.mayors.set(s.id, (m = this.make(hq, this.tex(PALETTE[slot % PALETTE.length], false), "", false)));
+      if (!m) {
+        const id = s.id, sl = slot;
+        this.mayors.set(id, (m = this.make(hq, "", () => this.onPick("session", id), false)));
+        this.dress(m, "mayor", () => this.figure(sl, K.OUTFIT_MAYOR, false));
+      }
       m.label.text = s.project.length > 14 ? s.project.slice(0, 13) + "…" : s.project;
       const badge = s.status === "waiting" ? "!" : s.status === "idle" ? "z" : "";
       if (badge && !m.badge) {
-        m.badge = new Text({ text: badge, ...LIVE_TEXT, style: { ...LIVE_TEXT.style, fontSize: 9, fontWeight: "bold" } });
+        m.badge = new Text({ text: "", ...LIVE_TEXT, style: { ...LIVE_TEXT.style, fontSize: 9, fontWeight: "bold" } });
         m.badge.anchor.set(0.5, 1);
         m.badge.y = m.label.y - 8;
         m.c.addChild(m.badge);
       }
-      if (m.badge) {
+      if (m.badge && m.badge.text !== badge) {
         m.badge.text = badge;
-        m.badge.style.fill = badge === "!" ? 0xffd23f : 0x9ad0ff;
+        if (badge) m.badge.style.fill = badge === "!" ? 0xffd23f : 0x9ad0ff;
         m.badge.visible = badge !== "";
       }
       this.goTo(m, this.door(s.district));
     }
+    this.hqHits.forEach((h, i) => (h.eventMode = this.hqOwner[i] ? "static" : "none"));
 
     // employees: working ones only, newest first, capped per session
     const groups = new Map<string, Employee[]>();
@@ -153,12 +226,16 @@ export class Actors {
       const list = (groups.get(s.id) ?? []).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
       const slot = this.slots.get(s.id)!;
       const hq = this.city.hqDoors[slot % this.city.hqDoors.length];
-      const color = shade(PALETTE[slot % PALETTE.length], 0.45);
       for (const e of list.slice(0, MAX_EMPLOYEES)) {
         shown.add(e.id);
         let a = this.staff.get(e.id);
-        if (!a) this.staff.set(e.id, (a = this.make(hq, this.tex(color, true), e.type, true)));
+        if (!a) {
+          const id = e.id;
+          this.staff.set(id, (a = this.make(hq, e.type, () => this.onPick("employee", id), true)));
+        }
         a.label.text = e.type;
+        const outfit = outfitFor(e.type);
+        this.dress(a, this.sheets ? `${outfit.shirt}|${outfit.own}|${outfit.item}` : "staff", () => this.figure(slot, outfit, true));
         this.goTo(a, this.door(e.district));
       }
       const extra = list.length - MAX_EMPLOYEES;
@@ -185,6 +262,7 @@ export class Actors {
       let step = dtMs * SPEED;
       while (step > 0 && a.path.length) {
         const n = a.path[0], dx = n.x - a.tx, dy = n.y - a.ty, d = Math.abs(dx) + Math.abs(dy);
+        if (dx) a.fig.scale.x = dx < 0 ? -1 : 1;
         if (d <= step) { a.tx = n.x; a.ty = n.y; a.path.shift(); step -= d; }
         else { a.tx += (dx / d) * step; a.ty += (dy / d) * step; step = 0; }
       }

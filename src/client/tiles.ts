@@ -81,3 +81,28 @@ export const WIN_BROWN = 617, WIN_GRAY = 729;
 export const WIN_ARCH = [583, 620];
 export const DOOR_GLASS = [800, 837], DOOR_DARK = [804, 841], DOOR_WOOD = [583, 620];
 export const SHUTTER = [880, 917];
+// moving cars, same colours as CARS (whose side view faces left): 2×2 views [tl, tr, bl, br]
+export const CARS_UP = [[697, 698, 734, 735], [845, 846, 882, 883], [993, 994, 1030, 1031]]; // seen from behind
+export const CARS_DOWN = [[699, 700, 736, 737], [847, 848, 884, 885], [995, 996, 1032, 1033]]; // seen from the front
+
+// --- roguelikeChar_transparent.png frames [col, row] ---
+export type Frame = readonly [number, number];
+export const CHAR_BODY: Frame = [0, 0];
+export const PANTS: Frame = [3, 0], SHOES: Frame = [4, 0];
+export const HAIR: Frame = [19, 0], MAYOR_HAIR: Frame = [23, 0];
+export const HAT: Frame = [28, 8];
+export const MAGNIFIER: Frame = [37, 0], SCROLL: Frame = [36, 1];
+// shirt colour blocks (orange, teal, lavender, green, gray, black): top-left of a 4×3 group that is laid out the same in each colour
+export const SHIRT_COLORS: Frame[] = [[6, 0], [10, 0], [14, 0], [6, 5], [10, 5], [14, 5]];
+// offsets inside a colour block
+export const TSHIRT: Frame = [0, 0], SHIRT: Frame = [1, 0], JACKET: Frame = [1, 1], SUIT: Frame = [2, 1];
+
+/** `own`: `shirt` is an offset inside the session's colour block; otherwise an absolute frame. */
+export interface Outfit { shirt: Frame; own: boolean; hair: Frame; hat?: Frame; item?: Frame }
+export const OUTFIT_MAYOR: Outfit = { shirt: SUIT, own: true, hair: MAYOR_HAIR, hat: HAT };
+export const OUTFIT_EXPLORE: Outfit = { shirt: JACKET, own: true, hair: HAIR, item: MAGNIFIER };
+export const OUTFIT_PLAN: Outfit = { shirt: SHIRT, own: true, hair: HAIR, item: SCROLL };
+export const OUTFIT_GENERAL: Outfit = { shirt: TSHIRT, own: true, hair: HAIR };
+export const OUTFIT_REVIEW: Outfit = { shirt: [12, 6], own: false, hair: HAIR }; // gray suit
+export const OUTFIT_TEST: Outfit = { shirt: [12, 4], own: false, hair: HAIR }; // white coat
+export const OUTFIT_OTHER: Outfit = { shirt: [10, 5], own: false, hair: HAIR }; // gray t-shirt
