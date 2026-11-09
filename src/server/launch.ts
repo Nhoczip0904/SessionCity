@@ -1,6 +1,7 @@
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { delimiter, join, resolve, isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { spawn as nodeSpawn } from "node:child_process";
 
 export const ALIASES = ["opus", "sonnet", "haiku", "fable"] as const;
@@ -29,6 +30,7 @@ export function validateLaunch(
   const absent = (v: unknown) => v === undefined || v === null || v === "";
 
   if (typeof b.cwd !== "string" || !b.cwd) return bad("Thư mục phải là đường dẫn tuyệt đối");
+  if (b.cwd.includes("\0")) return bad("Thư mục không hợp lệ");
   if (/^[\\/]{2}/.test(b.cwd)) return bad("Không hỗ trợ đường dẫn mạng (UNC)");
   if (!isAbsolute(b.cwd)) return bad("Thư mục phải là đường dẫn tuyệt đối");
   const cwd = resolve(b.cwd);
@@ -60,24 +62,16 @@ const esc = (s: string) => s.replace(/;/g, "\\;");
 // cmd.exe /c start re-parses its line; unquoted metacharacters would run commands.
 const CMD_META = /[&|<>^%!()"]/;
 
+// Only fixed paths go through wt/cmd; user text travels in the job file read by bin/claude-launch.mjs.
 export function buildLaunch(
   opts: LaunchOpts,
-  env: { claude: string; wt: string | null; settingsFile?: string },
+  env: { node: string; script: string; jobFile: string; wt: string | null },
 ): { file: string; args: string[] } {
-  const tail: string[] = [];
-  if (opts.model) tail.push("--model", opts.model);
-  if (env.settingsFile) tail.push("--settings", env.settingsFile);
-  if (env.wt) {
-    if (opts.prompt) tail.push("--", opts.prompt);
-    return {
-      file: env.wt,
-      args: ["-w", "new", "new-tab", "-d", opts.cwd, "--title", "BackendCity", env.claude, ...tail].map(esc),
-    };
-  }
-  // Fallback never forwards the prompt: it cannot be passed through cmd.exe safely.
-  if ([opts.cwd, env.claude, env.settingsFile ?? ""].some((s) => CMD_META.test(s)))
-    throw new Error("Đường dẫn chứa ký tự không an toàn");
-  return { file: "cmd.exe", args: ["/c", "start", "BackendCity", "/D", opts.cwd, env.claude, ...tail] };
+  const run = [env.node, env.script, env.jobFile];
+  if (env.wt)
+    return { file: env.wt, args: ["-w", "new", "new-tab", "-d", opts.cwd, "--title", "BackendCity", ...run].map(esc) };
+  if ([opts.cwd, ...run].some((s) => CMD_META.test(s))) throw new Error("Đường dẫn chứa ký tự không an toàn");
+  return { file: "cmd.exe", args: ["/c", "start", "", "/D", opts.cwd, ...run] };
 }
 
 export function findOnPath(
@@ -85,16 +79,21 @@ export function findOnPath(
   extra: string[],
   env: NodeJS.ProcessEnv = process.env,
   exists: (p: string) => boolean = existsSync,
+  exts?: string[], // restrict candidates (e.g. [".exe"]); default is PATHEXT plus the bare name
 ): string | null {
-  const exts = process.platform === "win32" ? (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean) : [];
+  const list =
+    exts ?? [...(process.platform === "win32" ? (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean) : []), ""];
   for (const dir of (env.PATH ?? "").split(delimiter).filter(Boolean)) {
-    for (const ext of [...exts, ""]) {
+    for (const ext of list) {
       const p = join(dir, name + ext);
       if (exists(p)) return p;
     }
   }
   return extra.find((p) => exists(p)) ?? null;
 }
+
+const SCRIPT = fileURLToPath(new URL("../../bin/claude-launch.mjs", import.meta.url));
+const FALLBACK_CLEANUP_MS = 10 * 60_000;
 
 export function launch(
   opts: LaunchOpts,
@@ -104,23 +103,38 @@ export function launch(
     spawn: typeof nodeSpawn;
     tmpDir: string;
     setTimeout: typeof setTimeout;
+    node?: string;
+    script?: string;
   },
 ): Promise<void> {
-  let settingsFile: string | undefined;
+  const files: string[] = [];
   const cleanup = () => {
-    try {
-      if (settingsFile) unlinkSync(settingsFile);
-    } catch {
-      /* already gone */
+    for (const f of files) {
+      try {
+        unlinkSync(f);
+      } catch {
+        /* already gone */
+      }
     }
+  };
+  const write = (prefix: string, content: string) => {
+    const f = join(deps.tmpDir, `${prefix}-${randomBytes(8).toString("hex")}.json`);
+    writeFileSync(f, content, { mode: 0o600, flag: "wx" });
+    files.push(f);
+    return f;
   };
   return new Promise<void>((resolveP, reject) => {
     try {
-      if (opts.subagentModel) {
-        settingsFile = join(deps.tmpDir, `backendcity-${randomBytes(8).toString("hex")}.json`);
-        writeFileSync(settingsFile, settingsJson(opts.subagentModel), { mode: 0o600 });
-      }
-      const { file, args } = buildLaunch(opts, { claude: deps.claude, wt: deps.wt, settingsFile });
+      if (!/\.exe$/i.test(deps.claude)) throw new Error("Đường dẫn claude phải là tệp .exe");
+      const settingsFile = opts.subagentModel ? write("backendcity", settingsJson(opts.subagentModel)) : undefined;
+      const job = { claude: deps.claude, model: opts.model, settingsFile, prompt: opts.prompt };
+      const jobFile = write("backendcity-job", JSON.stringify(job));
+      const { file, args } = buildLaunch(opts, {
+        node: deps.node ?? process.execPath,
+        script: deps.script ?? SCRIPT,
+        jobFile,
+        wt: deps.wt,
+      });
       const child = deps.spawn(file, args, { detached: true, stdio: "ignore", shell: false });
       child.once("error", (e) => {
         cleanup();
@@ -128,7 +142,8 @@ export function launch(
       });
       child.once("spawn", () => {
         child.unref();
-        if (settingsFile) deps.setTimeout(cleanup, 60_000);
+        // the job file is normally deleted by the launcher; this only covers a launcher that never ran
+        (deps.setTimeout(cleanup, FALLBACK_CLEANUP_MS) as { unref?: () => void } | undefined)?.unref?.();
         resolveP();
       });
     } catch (e) {
