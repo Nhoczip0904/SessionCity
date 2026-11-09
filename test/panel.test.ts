@@ -161,4 +161,26 @@ describe("Panel", () => {
     (root.querySelector(".close") as HTMLElement).click();
     expect(root.hidden).toBe(true);
   });
+  it("collapsed prompt stays collapsed across refresh; a newly opened actor starts open", async () => {
+    const root = document.createElement("div");
+    const p = new Panel(root, vi.fn().mockResolvedValue(session()));
+    await p.open("session", "s1");
+    root.querySelector("details")!.open = false;
+    p.onDelta(delta("s1"));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(root.querySelector("details")!.open).toBe(false);
+    await p.open("session", "s2");
+    expect(root.querySelector("details")!.open).toBe(true);
+  });
+  it("open() cancels a pending trailing refetch", async () => {
+    const fetchDetail = vi.fn().mockResolvedValue(session());
+    const p = new Panel(document.createElement("div"), fetchDetail);
+    await p.open("session", "s1");
+    p.onDelta(delta("s1")); // schedules a refetch ~1 s after the open fetch
+    await vi.advanceTimersByTimeAsync(500);
+    await p.open("session", "s2");
+    fetchDetail.mockClear();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(fetchDetail).not.toHaveBeenCalled();
+  });
 });
