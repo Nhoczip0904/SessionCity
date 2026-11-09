@@ -36,7 +36,7 @@ export function parseLine(line: string, ctx: LineContext, rules: Rule[]): Event[
   const cwd = str(rec.cwd);
   const branch = str(rec.gitBranch);
   const title = rec.type === "custom-title" ? str(rec.customTitle) ?? str(rec.title) : undefined;
-  if (cwd !== undefined || branch !== undefined || title !== undefined) {
+  if (!agentId && (cwd !== undefined || branch !== undefined || title !== undefined)) {
     const m: Event = { kind: "meta", sessionId, at };
     if (title !== undefined) m.title = title;
     if (branch !== undefined) m.branch = branch;
