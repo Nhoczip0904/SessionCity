@@ -1,7 +1,9 @@
 import { Container, Graphics, Text } from "pixi.js";
 import type { District } from "../shared/types.js";
-import { DISTRICTS } from "../shared/districts.js";
+import { districtInfo } from "../shared/districts.js";
+import { drawTiles } from "./cityDraw.js";
 import type { Pt } from "./path.js";
+import type { Sheets } from "./tiles.js";
 
 export const TILE = 16;
 const COLS = 48, ROWS = 32;
@@ -34,14 +36,11 @@ for (let i = 0; i < 7; i++) HQ.push({ x: 17 + 2 * i, y: 24, up: false });
 
 const door = (x: number, y: number, h: number, up: boolean): Pt => ({ x, y: up ? y - 1 : y + h });
 const hash = (x: number, y: number) => (((x * 73856093) ^ (y * 19349663)) >>> 0) % 1000;
-const LABEL_STYLE = {
-  fontFamily: 'Consolas, "DejaVu Sans Mono", "Courier New", monospace',
-  fontSize: 8,
-  fill: 0xffffff,
-  stroke: { color: 0x1a1a1a, width: 2 },
-};
+const FONT = 'Consolas, "DejaVu Sans Mono", "Courier New", monospace';
+const LABEL_STYLE = { fontFamily: FONT, fontSize: 8, fill: 0xffffff, stroke: { color: 0x1a1a1a, width: 2 } };
+const SIGN_STYLE = { fontFamily: FONT, fontSize: 7, fill: 0xf4ecd0 };
 
-export function buildCity() {
+export function buildCity(sheets: Sheets | null) {
   const walkable = Array.from({ length: ROWS }, (_, y) => Array.from({ length: COLS }, (_, x) => isRoad(x, y)));
   const doors = {} as Record<District, Pt>;
   for (const p of PLOTS) doors[p.id] = door(p.x + (p.w >> 1), p.y, p.h, p.up);
@@ -56,7 +55,26 @@ export function buildCity() {
   PLOTS.forEach((p) => mark(p.x, p.y, p.w, p.h));
   HQ.forEach((h) => mark(h.x, h.y, 2, 4));
 
+  const plots = PLOTS.map((p) => ({ id: p.id, px: { x: p.x * TILE, y: p.y * TILE, w: p.w * TILE, h: p.h * TILE } }));
+  const hqPlots = HQ.map((h) => ({ x: h.x * TILE, y: h.y * TILE, w: 2 * TILE, h: 4 * TILE }));
+
   function draw(): Container {
+    const root = sheets
+      ? drawTiles(sheets, { cols: COLS, rows: ROWS, isRoad, roadRows: ROAD_ROWS, roadCols: ROAD_COLS, plots: PLOTS, hq: HQ, built, hash })
+      : drawProcedural();
+    for (const p of PLOTS) {
+      // tiles: centre of the roof (the facade takes the 2 road-side rows); procedural: centre of the plot
+      const cy = sheets ? (p.y + (p.up ? 2 : 0) + (p.h - 2) / 2) * TILE : p.y * TILE + p.h * TILE / 2 + 2;
+      drawLabel(root, p, Math.round(p.x * TILE + (p.w * TILE) / 2 - 1), Math.round(cy - 4));
+    }
+    const hqLabel = new Text({ text: "Trụ sở", style: LABEL_STYLE, resolution: 2 });
+    hqLabel.anchor.set(0.5);
+    hqLabel.position.set(24 * TILE, 22.5 * TILE);
+    root.addChild(hqLabel);
+    return root;
+  }
+
+  function drawProcedural(): Container {
     const root = new Container();
     const g = new Graphics();
     root.addChild(g);
@@ -97,7 +115,7 @@ export function buildCity() {
         g.rect(px + 5, py + 3, 4, 3).fill(0x4a9a4a);
       }
 
-    for (const p of PLOTS) drawBuilding(g, root, p);
+    for (const p of PLOTS) drawBuilding(g, p);
     HQ.forEach((h, i) => {
       const px = h.x * T, py = h.y * T, w = 2 * T, hh = 4 * T;
       g.rect(px + 1, py + 1, w - 2, hh - 2).fill(0x3a3a44);
@@ -105,17 +123,29 @@ export function buildCity() {
       for (let r = 0; r < 3; r++) g.rect(px + 6, py + 10 + r * 16, w - 12, 6).fill(0xbfe0f0);
       g.rect(px + 12, h.up ? py + 1 : py + hh - 5, 8, 4).fill(0x4a2e1a);
     });
-    const hqLabel = new Text({ text: "Trụ sở", style: LABEL_STYLE, resolution: 2 });
-    hqLabel.anchor.set(0.5);
-    hqLabel.position.set(24 * T, 22.5 * T);
-    root.addChild(hqLabel);
     return root;
   }
 
-  return { cols: COLS, rows: ROWS, walkable, doors, hqDoors, draw };
+  return { cols: COLS, rows: ROWS, walkable, doors, hqDoors, plots, hqPlots, draw };
 }
 
-function drawBuilding(g: Graphics, root: Container, p: Plot) {
+/** Building name with a 1-line sign plaque under it. */
+function drawLabel(root: Container, p: Plot, x: number, y: number) {
+  const info = districtInfo(p.id);
+  const t = new Text({ text: info.label, style: LABEL_STYLE, resolution: 2 });
+  t.anchor.set(0.5);
+  t.position.set(x, y);
+  const sign = new Text({ text: info.sign, style: SIGN_STYLE, resolution: 2 });
+  sign.anchor.set(0.5);
+  sign.position.set(x, y + 10);
+  const bw = Math.ceil(sign.width) + 6, bh = 10;
+  const plaque = new Graphics()
+    .rect(x - (bw >> 1), y + 5, bw, bh).fill(0x3a2a1c)
+    .rect(x - (bw >> 1), y + 5, bw, bh).stroke({ color: 0xc8a060, width: 1, alignment: 1 });
+  root.addChild(plaque, t, sign);
+}
+
+function drawBuilding(g: Graphics, p: Plot) {
   const T = TILE, x = p.x * T, y = p.y * T, w = p.w * T, h = p.h * T;
   g.rect(x + 2, y + 3, w - 2, h - 2).fill({ color: 0x000000, alpha: 0.25 }); // shadow
   g.rect(x, y, w - 2, h - 2).fill(0x2a2a30); // outline
@@ -174,10 +204,4 @@ function drawBuilding(g: Graphics, root: Container, p: Plot) {
   // facade strip + door on the road side
   g.rect(x + 1, p.up ? y + 1 : y + h - 7, w - 4, 4).fill(p.wall);
   g.rect(x + (p.w >> 1) * T + 4, p.up ? y : y + h - 8, 8, 6).fill(0x4a2e1a);
-
-  const label = DISTRICTS.find((d) => d.id === p.id)!.label;
-  const t = new Text({ text: label, style: LABEL_STYLE, resolution: 2 });
-  t.anchor.set(0.5);
-  t.position.set(Math.round(x + w / 2 - 1), Math.round(y + h / 2 + 2));
-  root.addChild(t);
 }
