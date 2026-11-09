@@ -32,7 +32,7 @@ function duration(ms: number): string {
 }
 
 const badge = (status: keyof typeof STATUS_LABEL) => el("span", STATUS_LABEL[status], `badge ${status}`);
-const clock = (iso: string) => new Date(iso).toTimeString().slice(0, 8);
+const clock = (iso: string) => (Number.isNaN(Date.parse(iso)) ? "—" : new Date(iso).toTimeString().slice(0, 8));
 
 function heading(text: string) {
   return el("h3", text);
@@ -81,6 +81,8 @@ export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id
   const det = el("details");
   det.open = true;
   det.append(el("summary", "Yêu cầu gần nhất"), el("pre", d.lastPrompt ?? "—"));
+  const pn = note(d.lastPrompt ?? "");
+  if (pn) det.append(pn);
   root.append(det, heading("Token"), tokenTable(d.tokens), heading("Nhân viên"));
 
   const staff = [...d.staff].sort((a, b) => Number(b.status === "working") - Number(a.status === "working"));
@@ -95,7 +97,7 @@ export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id
     root.append(row);
   }
 
-  root.append(heading("Hoạt động gần đây"), stepRows(d.steps.slice(-SESSION_STEPS)));
+  root.append(heading("Hoạt động gần đây"), stepRows(d.steps.slice(0, SESSION_STEPS)));
   return root;
 }
 
@@ -113,7 +115,7 @@ export function renderEmployee(d: EmployeeDetail, now: number, onBack: () => voi
   root.append(back, head, heading("Thị trưởng giao việc"), el("pre", d.prompt));
   const pn = note(d.prompt);
   if (pn) root.append(pn);
-  root.append(heading("Các bước đã làm"), stepRows(d.steps.slice(-100)), heading("Báo cáo lại"));
+  root.append(heading("Các bước đã làm"), stepRows(d.steps.slice(0, 100)), heading("Báo cáo lại"));
   if (d.report === undefined) root.append(el("div", "Đang làm…", "muted"));
   else {
     root.append(el("pre", d.report));

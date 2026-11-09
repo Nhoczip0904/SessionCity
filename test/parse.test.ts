@@ -27,6 +27,17 @@ describe("parseLine", () => {
     expect(parseLine(b, ctx, rules)).toEqual([{ kind: "prompt", sessionId: "s1", at: T, text: "hi" }]);
   });
 
+  it("non-human user text keeps the prompt event but blanks the text", () => {
+    for (const t of ["<task-notification>x", "  <local-command-stdout>x", "<system-reminder>x", "[Request interrupted by user]"]) {
+      const l = line({ type: "user", message: { role: "user", content: t } });
+      expect(parseLine(l, ctx, rules)).toEqual([{ kind: "prompt", sessionId: "s1", at: T, text: "" }]);
+    }
+    const c = line({ type: "user", isCompactSummary: true, message: { role: "user", content: "summary…" } });
+    expect(parseLine(c, ctx, rules)).toEqual([{ kind: "prompt", sessionId: "s1", at: T, text: "" }]);
+    const k = line({ type: "user", message: { role: "user", content: "<command-name>/clear</command-name>" } });
+    expect(parseLine(k, ctx, rules)).toMatchObject([{ kind: "prompt", text: "<command-name>/clear</command-name>" }]);
+  });
+
   it("isMeta user and subagent user are not prompts", () => {
     const l = line({ type: "user", isMeta: true, message: { content: "x" } });
     expect(parseLine(l, ctx, rules)).toEqual([]);

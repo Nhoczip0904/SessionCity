@@ -26,6 +26,17 @@ export function renderDistrictCard(info: DistrictInfo, present: string[]): HTMLE
   return card;
 }
 
+export function presentAt(
+  district: District,
+  sessions: { district: District; project: string }[],
+  employees: { district: District; type: string; status: string }[],
+): string[] {
+  return [
+    ...sessions.filter((x) => x.district === district).map((x) => x.project),
+    ...employees.filter((x) => x.district === district && x.status === "working").map((x) => x.type),
+  ];
+}
+
 export function plotAt<T extends { id: District; px: { x: number; y: number; w: number; h: number } }>(plots: T[], x: number, y: number): T | undefined {
   return plots.find((p) => x >= p.px.x && x < p.px.x + p.px.w && y >= p.px.y && y < p.px.y + p.px.h);
 }

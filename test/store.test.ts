@@ -310,6 +310,15 @@ describe("Store", () => {
       expect(d.steps[99].summary).toBe("#51");
     });
 
+    it("empty prompt text keeps lastPrompt but still marks working", () => {
+      const s = mk();
+      s.apply(prompt("real"));
+      s.apply({ kind: "turnEnd", sessionId: "s1", at: AT });
+      s.apply(prompt(""));
+      expect(s.detailSession("s1")!.lastPrompt).toBe("real");
+      expect(sess(s)).toMatchObject({ status: "working", district: "townhall" });
+    });
+
     it("employee steps are separate from mayor steps", () => {
       const s = mk();
       s.apply(step(1));

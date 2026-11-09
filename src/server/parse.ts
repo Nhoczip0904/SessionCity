@@ -51,8 +51,10 @@ export function parseLine(line: string, ctx: LineContext, rules: Rule[]): Event[
       out.push({ kind: "report", sessionId, at, toolUseId: r.tool_use_id as string, text: resultText(r.content) });
     const isText = typeof msg.content === "string" || parts.some((b) => b.type === "text");
     if (isText && results.length === 0 && !agentId) {
-      const text = typeof msg.content === "string" ? msg.content : resultText(parts);
-      out.push({ kind: "prompt", sessionId, at, text });
+      const raw = typeof msg.content === "string" ? msg.content : resultText(parts);
+      // not typed by the human: still a prompt event (status/townhall), but no text for lastPrompt
+      const synthetic = rec.isCompactSummary === true || /^(<task-notification|<local-command-|<system-reminder|\[Request interrupted)/.test(raw.trimStart());
+      out.push({ kind: "prompt", sessionId, at, text: synthetic ? "" : raw });
     }
   } else if (rec.type === "assistant") {
     const uses = blocks(msg.content).filter((b) => b.type === "tool_use" && typeof b.name === "string");
