@@ -146,6 +146,8 @@ export class Panel {
 
   async open(kind: Kind, id: string): Promise<void> {
     this.cur = { kind, id };
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
     this.banner.hidden = true;
     this.body.replaceChildren();
     this.root.hidden = false;
@@ -190,12 +192,15 @@ export class Panel {
     }
     this.banner.hidden = true;
     const top = this.body.scrollTop;
+    const wasOpen = this.body.querySelector("details")?.open; // undefined on first render of this actor → default open
     const now = Date.now();
     this.body.replaceChildren(
       c.kind === "session"
         ? renderSession(res as SessionDetail, now, (id) => void this.open("employee", id))
         : renderEmployee(res as EmployeeDetail, now, () => void this.open("session", (res as EmployeeDetail).sessionId)),
     );
+    const det = this.body.querySelector("details");
+    if (det && wasOpen !== undefined) det.open = wasOpen;
     this.body.scrollTop = top;
   }
 }
