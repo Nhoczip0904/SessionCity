@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request } from "node:http";
+import { connect } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { startServer, tokenOk } from "../src/server/http.js";
@@ -43,6 +44,15 @@ const raw = (path: string) =>
     })
       .on("error", rej)
       .end();
+  });
+
+const rawSocket = (data: string) =>
+  new Promise<string>((res) => {
+    let out = "";
+    const s = connect(port, "127.0.0.1", () => s.write(data));
+    s.on("data", (d) => (out += d));
+    s.on("error", () => {});
+    s.on("close", () => res(out));
   });
 
 const wsOpen = (query: string, origin?: string, msgs: any[] = []) =>
@@ -97,6 +107,26 @@ describe("http", () => {
   });
   it("unknown path -> 404", async () => {
     expect((await get("/nope.js")).status).toBe(404);
+  });
+  it("malformed request target -> 400 and server stays alive", async () => {
+    for (const target of ["//", "//["]) {
+      const reply = await rawSocket(`GET ${target} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n`);
+      expect(reply, target).toContain("HTTP/1.1 400");
+      expect((await get(`/api/state?token=${TOKEN}`)).status).toBe(200);
+    }
+  });
+  it("malformed upgrade URL -> socket closed and server stays alive", async () => {
+    const reply = await rawSocket("GET //[ HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n");
+    expect(reply).not.toMatch(/101/);
+    expect((await get(`/api/state?token=${TOKEN}`)).status).toBe(200);
+  });
+  it("invalid frame from a connected client does not crash the server", async () => {
+    const { ws } = await wsOpen(`?token=${TOKEN}`, `http://127.0.0.1:${port}`);
+    expect(ws).toBeDefined();
+    const closed = new Promise((r) => ws!.once("close", r));
+    (ws as any)._socket.write(Buffer.from([0xff, 0x00])); // RSV bits set, unmasked
+    await closed;
+    expect((await get(`/api/state?token=${TOKEN}`)).status).toBe(200);
   });
   it("WS without token -> 401", async () => {
     expect((await wsOpen("", `http://127.0.0.1:${port}`)).status).toBe(401);
