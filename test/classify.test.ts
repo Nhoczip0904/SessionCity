@@ -25,4 +25,8 @@ describe("classify", () => {
   it("unknown tool keeps district", () => expect(classify(rules, "Agent", { prompt: "x" })).toBeNull());
   it("rejects unknown district", () => expect(() => loadRules([{ district: "moon", tool: "Read" }])).toThrow(/rule 1/));
   it("rejects bad regex", () => expect(() => loadRules([{ district: "lab", command: "(" }])).toThrow(/rule 1/));
+  it("rejects non-string field", () => expect(() => loadRules([{ district: "lab", command: 123 }])).toThrow(/rule 1/));
+  it("rejects null field", () => expect(() => loadRules([{ district: "lab", tool: null }])).toThrow(/rule 1/));
+  it("rejects unknown key", () => expect(() => loadRules([{ district: "lab", comand: "x" }])).toThrow(/rule 1/));
+  it("rejects rule without matchers", () => expect(() => loadRules([{ district: "lab" }])).toThrow(/rule 1/));
 });
