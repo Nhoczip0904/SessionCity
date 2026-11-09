@@ -1,4 +1,4 @@
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { accessSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { delimiter, join, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +36,7 @@ export function validateLaunch(
   if (/^[\\/]{2}/.test(b.cwd)) return bad("Không hỗ trợ đường dẫn mạng (UNC)");
   if (!isAbsolute(b.cwd)) return bad("Thư mục phải là đường dẫn tuyệt đối");
   const cwd = resolve(b.cwd);
+  if (/[ .]$/.test(cwd)) return bad("Thư mục không được kết thúc bằng dấu cách hoặc dấu chấm");
   if (!isDir(cwd)) return bad("Thư mục không tồn tại");
   const opts: LaunchOpts = { cwd };
 
@@ -80,7 +81,15 @@ export function findOnPath(
   name: string,
   extra: string[],
   env: NodeJS.ProcessEnv = process.env,
-  exists: (p: string) => boolean = existsSync,
+  // accessSync, not existsSync: app execution aliases (wt.exe) fail exists/stat but pass access
+  exists: (p: string) => boolean = (p) => {
+    try {
+      accessSync(p);
+      return true;
+    } catch {
+      return false;
+    }
+  },
   exts?: string[], // restrict candidates (e.g. [".exe"]); default is PATHEXT plus the bare name
 ): string | null {
   const list =
@@ -145,7 +154,7 @@ export function launch(
       child.once("spawn", () => {
         child.unref();
         // the job file is normally deleted by the launcher; this only covers a launcher that never ran
-        (deps.setTimeout(cleanup, FALLBACK_CLEANUP_MS) as { unref?: () => void } | undefined)?.unref?.();
+        (deps.setTimeout(() => existsSync(jobFile) && cleanup(), FALLBACK_CLEANUP_MS) as { unref?: () => void } | undefined)?.unref?.();
         resolveP();
       });
     } catch (e) {

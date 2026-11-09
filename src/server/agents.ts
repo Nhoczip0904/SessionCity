@@ -17,13 +17,15 @@ ${MARKER}
 You are a read-only codebase exploration agent. Search broadly first: use Glob for file names and Grep for symbols, strings and naming variants across several locations. Read the files that look relevant before drawing conclusions. Report the exact file paths and the findings that answer the question, and say clearly when something could not be found. Never create, modify or delete files, and never run commands that change anything.
 `;
 
+const NL = /\r?\n/;
+
 export function exploreState(dir: string): "off" | "on" | "user" {
   const file = join(dir, "Explore.md");
   if (!existsSync(file)) return "off";
-  return readFileSync(file, "utf8").includes(MARKER) ? "on" : "user";
+  return readFileSync(file, "utf8").split(NL).some((l) => l.trim() === MARKER) ? "on" : "user";
 }
 
-export function setExplore(dir: string, enabled: boolean): "off" | "on" {
+export function setExplore(dir: string, enabled: boolean, rand: () => string = () => randomBytes(4).toString("hex")): "off" | "on" {
   if (exploreState(dir) === "user") throw new UserOwnedError("Explore.md do người dùng tự viết");
   const file = join(dir, "Explore.md");
   if (!enabled) {
@@ -31,9 +33,9 @@ export function setExplore(dir: string, enabled: boolean): "off" | "on" {
     return "off";
   }
   mkdirSync(dir, { recursive: true });
-  const tmp = join(dir, `Explore.md.tmp-${randomBytes(4).toString("hex")}`);
+  const tmp = join(dir, `Explore.md.tmp-${rand()}`);
+  writeFileSync(tmp, CONTENT, { flag: "wx" }); // fails if the name is taken; then the file isn't ours to delete
   try {
-    writeFileSync(tmp, CONTENT, { flag: "wx" });
     renameSync(tmp, file);
   } catch (e) {
     try { unlinkSync(tmp); } catch { /* temp may not exist */ }

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Panel } from "../src/client/panel.js";
 import { renderLaunchDialog, renderModelRules, showDialog, type LaunchOpts } from "../src/client/launcher.js";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -27,9 +28,9 @@ describe("renderLaunchDialog", () => {
   it("typed path wins over select", () => {
     const onSubmit = vi.fn(async (_o: LaunchOpts) => null);
     const d = renderLaunchDialog(["/a"], onSubmit);
-    q<HTMLInputElement>(d, "input.path").value = "C:\typed";
+    q<HTMLInputElement>(d, "input.path").value = "C:\\typed";
     submit(d);
-    expect(onSubmit.mock.calls[0][0].cwd).toBe("C:\typed");
+    expect(onSubmit.mock.calls[0][0].cwd).toBe("C:\\typed");
   });
   it("empty selects omit model/subagentModel; chosen ones map to aliases", async () => {
     const onSubmit = vi.fn(async (_o: LaunchOpts) => null);
@@ -83,6 +84,17 @@ describe("renderLaunchDialog", () => {
 });
 
 describe("dialog chrome", () => {
+  it("Esc with a dialog open closes only the dialog, not the panel behind it", async () => {
+    const root = document.createElement("div");
+    const p = new Panel(root, vi.fn().mockResolvedValue({ id: "s1", staff: [], steps: [], employees: [], tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, byModel: {} } }) as never);
+    await p.open("session", "s1");
+    showDialog(renderLaunchDialog([], async () => null));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.querySelectorAll(".dialog").length).toBe(0);
+    expect(root.hidden).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(root.hidden).toBe(true);
+  });
   it("Esc, close button and backdrop close; one at a time", () => {
     const a = renderLaunchDialog([], async () => null);
     showDialog(a);
@@ -110,7 +122,7 @@ describe("renderModelRules", () => {
     expect(q<HTMLInputElement>(d, "input[type=checkbox]").disabled).toBe(true);
     expect(q(d, ".msg").textContent).toContain("Explore.md");
     expect(d.textContent).toContain("Explore dùng Haiku");
-    expect(d.textContent).toContain("Áp dụng cho phiên mở sau khi bật");
+    expect(d.textContent).toContain("Áp dụng cho phiên mở sau khi bật; phiên đang chạy dùng cấu hình cũ.");
   });
   it("toggle calls onToggle(true) and shows new state", async () => {
     const onToggle = vi.fn(async () => "on" as const);

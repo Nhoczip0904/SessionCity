@@ -317,6 +317,19 @@ describe("launch + explore routes", () => {
     const off = await call("PUT", "/api/agents/explore", JSON.stringify({ enabled: false }));
     expect(JSON.parse(off.body)).toEqual({ state: "off" });
   });
+  it("explore fs failure (Explore.md is a directory) -> 500 for GET and PUT", async () => {
+    await mkdir(join(d, "agents", "Explore.md"), { recursive: true });
+    try {
+      const g = await gg(`/api/agents/explore?token=${TOKEN}`);
+      expect(g.status).toBe(500);
+      expect(JSON.parse(g.body)).toEqual({ error: "Không đọc/ghi được Explore.md" });
+      const r = await call("PUT", "/api/agents/explore", JSON.stringify({ enabled: false }));
+      expect(r.status).toBe(500);
+      expect(JSON.parse(r.body)).toEqual({ error: "Không đọc/ghi được Explore.md" });
+    } finally {
+      await rm(join(d, "agents", "Explore.md"), { recursive: true });
+    }
+  });
   it("PUT explore non-boolean -> 400", async () => {
     expect((await call("PUT", "/api/agents/explore", JSON.stringify({ enabled: "yes" }))).status).toBe(400);
   });

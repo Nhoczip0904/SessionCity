@@ -62,4 +62,21 @@ describe("explore agent", () => {
     expect(readdirSync(d).filter((f) => f.includes(".tmp-"))).toEqual([]);
     rmSync(d, { recursive: true });
   });
+  it("marker quoted inside a sentence is user-owned, not on", () => {
+    const d = tmp();
+    writeFileSync(join(d, "Explore.md"), `mine, do not use ${MARKER} here\n`);
+    expect(exploreState(d)).toBe("user");
+  });
+  it("marker on its own line (CRLF, padded) counts as on", () => {
+    const d = tmp();
+    writeFileSync(join(d, "Explore.md"), `x\r\n  ${MARKER}  \r\ny`);
+    expect(exploreState(d)).toBe("on");
+  });
+  it("does not delete a colliding temp file it did not create", () => {
+    const d = tmp();
+    const other = join(d, "Explore.md.tmp-aaaa");
+    writeFileSync(other, "not mine");
+    expect(() => setExplore(d, true, () => "aaaa")).toThrow();
+    expect(readFileSync(other, "utf8")).toBe("not mine");
+  });
 });
