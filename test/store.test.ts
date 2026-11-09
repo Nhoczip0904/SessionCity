@@ -16,7 +16,7 @@ const usage = (extra: object = {}): Event =>
   ({ kind: "usage", sessionId: "s1", at: AT, messageId: "m1", model: "opus", usage: u(1), ...extra }) as Event;
 const spawn = (): Event =>
   ({ kind: "spawn", sessionId: "s1", at: AT, toolUseId: "tu1", type: "Explore", description: "desc", prompt: "do it" });
-const agentMeta = (): Event =>
+const agentMeta = (): Extract<Event, { kind: "agentMeta" }> =>
   ({ kind: "agentMeta", sessionId: "s1", agentId: "a1", toolUseId: "tu1", type: "Explore", description: "desc", at: AT });
 const sess = (s: Store, id = "s1") => s.snapshot().sessions.find((x) => x.id === id)!;
 
@@ -121,6 +121,43 @@ describe("Store", () => {
     expect(s.snapshot().employees).toEqual([]);
     expect(sess(s).employees).toEqual([]);
     expect(s.drainDelta()!.removed).toContain("a1");
+  });
+
+  it("turnEnd with agentId marks that employee done; removed 30 s later", () => {
+    const s = mk();
+    s.apply(agentMeta());
+    s.apply({ kind: "turnEnd", sessionId: "s1", at: AT, agentId: "a1" });
+    expect(s.snapshot().employees[0]).toMatchObject({ status: "done", endedAt: AT });
+    t += 30_000;
+    s.tick();
+    expect(s.snapshot().employees).toEqual([]);
+  });
+
+  it("agent tool event does not flip a waiting session back to working", () => {
+    const s = mk();
+    s.apply({ kind: "turnEnd", sessionId: "s1", at: AT });
+    s.apply(tool("site", { agentId: "a1" }));
+    expect(sess(s)).toMatchObject({ status: "waiting", district: "townhall" });
+    expect(s.snapshot().employees[0].district).toBe("site");
+  });
+
+  it("id dropped by tick and re-created in the same window is not in removed", () => {
+    const s = mk();
+    s.apply(agentMeta());
+    s.apply({ kind: "report", sessionId: "s1", at: AT, toolUseId: "tu1", text: "x" });
+    s.drainDelta();
+    t += 30_000;
+    s.tick();
+    s.apply(agentMeta());
+    const d = s.drainDelta()!;
+    expect(d.employees.map((e) => e.id)).toContain("a1");
+    expect(d.removed).not.toContain("a1");
+  });
+
+  it("meta with unicode Windows cwd gives project from last segment", () => {
+    const s = mk();
+    s.apply({ kind: "meta", sessionId: "s1", at: AT, cwd: String.raw`D:\Học\Dự án` });
+    expect(sess(s).project).toBe("Dự án");
   });
 
   it("usage sums per session, per employee and per model", () => {

@@ -22,7 +22,7 @@ try {
 }
 
 const store = new Store();
-const watcher = new Watcher(join(homedir(), ".claude", "projects"), (events) => events.forEach((e) => store.apply(e)), { rules });
+const watcher = new Watcher(join(homedir(), ".claude", "projects"), (events) => { events.forEach((e) => store.apply(e)); store.tick(); }, { rules });
 const clientDir = join(packageRoot(), "dist", "client");
 const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir });
 await watcher.start();

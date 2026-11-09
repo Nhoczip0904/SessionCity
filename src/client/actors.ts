@@ -158,6 +158,7 @@ export class Actors {
         shown.add(e.id);
         let a = this.staff.get(e.id);
         if (!a) this.staff.set(e.id, (a = this.make(hq, this.tex(color, true), e.type, true)));
+        a.label.text = e.type;
         this.goTo(a, this.door(e.district));
       }
       const extra = list.length - MAX_EMPLOYEES;

@@ -97,11 +97,13 @@ export class Store {
         s.status = "working"; s.district = "townhall";
         break;
       case "tool":
-        s.status = "working";
         if (e.agentId) {
           const emp = this.employee(e.sessionId, e.agentId, e.at);
           if (e.district) emp.district = e.district;
-        } else if (e.district) s.district = e.district;
+        } else {
+          s.status = "working";
+          if (e.district) s.district = e.district;
+        }
         break;
       case "spawn": {
         s.status = "working";
@@ -127,15 +129,11 @@ export class Store {
       }
       case "report": {
         const emp = [...this.employees.values()].find((x) => x.toolUseId === e.toolUseId && e.toolUseId !== "");
-        if (emp && emp.status !== "done") {
-          emp.status = "done"; emp.endedAt = e.at;
-          this.endedAt.set(emp.id, this.now());
-          this.dirtyE.add(emp.id);
-        }
+        if (emp) this.finish(emp, e.at);
         break;
       }
       case "turnEnd":
-        if (e.agentId) this.employee(e.sessionId, e.agentId, e.at);
+        if (e.agentId) this.finish(this.employee(e.sessionId, e.agentId, e.at), e.at);
         else { s.status = "waiting"; s.district = "townhall"; }
         break;
       case "usage": {
@@ -151,6 +149,13 @@ export class Store {
         break;
       }
     }
+  }
+
+  private finish(emp: Employee, at: string) {
+    if (emp.status === "done") return;
+    emp.status = "done"; emp.endedAt = at;
+    this.endedAt.set(emp.id, this.now());
+    this.dirtyE.add(emp.id);
   }
 
   tick(): void {
@@ -202,7 +207,7 @@ export class Store {
     const d: Delta = {
       sessions: structuredClone([...this.dirtyS].map((i) => this.sessions.get(i)!).filter(Boolean)),
       employees: structuredClone([...this.dirtyE].map((i) => this.employees.get(i)!).filter(Boolean)),
-      removed: this.removed,
+      removed: this.removed.filter((i) => !this.sessions.has(i) && !this.employees.has(i)),
     };
     this.dirtyS.clear(); this.dirtyE.clear(); this.removed = [];
     return d;

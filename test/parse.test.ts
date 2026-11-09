@@ -99,10 +99,15 @@ describe("parseLine", () => {
   });
 
   it("cwd with unicode → meta.cwd kept verbatim", () => {
-    const l = line({ type: "system", cwd: "D:\Học\Dự án", gitBranch: "main" });
+    const l = line({ type: "system", cwd: String.raw`D:\Học\Dự án`, gitBranch: "main" });
     expect(parseLine(l, ctx, rules)).toEqual([
-      { kind: "meta", sessionId: "s1", at: T, cwd: "D:\Học\Dự án", branch: "main" },
+      { kind: "meta", sessionId: "s1", at: T, cwd: String.raw`D:\Học\Dự án`, branch: "main" },
     ]);
+  });
+
+  it("subagent lines emit no meta", () => {
+    const l = line({ type: "system", cwd: "/wt", gitBranch: "x" });
+    expect(parseLine(l, { sessionId: "s1", agentId: "a1" }, rules)).toEqual([]);
   });
 
   it("custom-title → meta.title", () => {
