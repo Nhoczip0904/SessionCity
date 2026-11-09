@@ -10,6 +10,15 @@ const line = (o: object) => JSON.stringify({ timestamp: T, ...o });
 const asst = (content: unknown[], extra: Record<string, unknown> = {}, id = "msg_1") =>
   line({ type: "assistant", message: { id, model: "claude-x", content, ...extra } });
 
+describe("at on meta/usage", () => {
+  it("meta and usage carry the record timestamp", () => {
+    const usage = { input_tokens: 1, output_tokens: 2 };
+    const l = line({ cwd: "/a/p", type: "assistant", message: { id: "m", model: "x", content: [], usage } });
+    const ev = parseLine(l, ctx, rules);
+    expect(ev.filter((e) => e.kind === "meta" || e.kind === "usage").map((e) => (e as { at: string }).at)).toEqual([T, T]);
+  });
+});
+
 describe("parseLine", () => {
   it("user text → prompt", () => {
     const l = line({ type: "user", message: { role: "user", content: "hello" } });
@@ -55,7 +64,7 @@ describe("parseLine", () => {
     const usage = { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 };
     const ev = parseLine(asst([{ type: "text", text: "x" }], { usage }), { sessionId: "s1", agentId: "a1" }, rules);
     expect(ev).toEqual([
-      { kind: "usage", sessionId: "s1", agentId: "a1", messageId: "msg_1", model: "claude-x",
+      { kind: "usage", sessionId: "s1", agentId: "a1", at: T, messageId: "msg_1", model: "claude-x",
         usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 } },
     ]);
   });
@@ -92,16 +101,16 @@ describe("parseLine", () => {
   it("cwd with unicode → meta.cwd kept verbatim", () => {
     const l = line({ type: "system", cwd: "D:\Học\Dự án", gitBranch: "main" });
     expect(parseLine(l, ctx, rules)).toEqual([
-      { kind: "meta", sessionId: "s1", cwd: "D:\Học\Dự án", branch: "main" },
+      { kind: "meta", sessionId: "s1", at: T, cwd: "D:\Học\Dự án", branch: "main" },
     ]);
   });
 
   it("custom-title → meta.title", () => {
     expect(parseLine(line({ type: "custom-title", customTitle: "My title" }), ctx, rules)).toEqual([
-      { kind: "meta", sessionId: "s1", title: "My title" },
+      { kind: "meta", sessionId: "s1", at: T, title: "My title" },
     ]);
     expect(parseLine(line({ type: "custom-title", title: "T2" }), ctx, rules)).toEqual([
-      { kind: "meta", sessionId: "s1", title: "T2" },
+      { kind: "meta", sessionId: "s1", at: T, title: "T2" },
     ]);
   });
 

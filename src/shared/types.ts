@@ -39,8 +39,8 @@ export type Event =
   | { kind: "spawn"; sessionId: string; at: string; toolUseId: string; type: string; description: string; prompt: string }
   | { kind: "report"; sessionId: string; at: string; toolUseId: string; text: string }
   | { kind: "turnEnd"; sessionId: string; agentId?: string; at: string }
-  | { kind: "usage"; sessionId: string; agentId?: string; messageId: string; model: string; usage: TokenCounts }
-  | { kind: "meta"; sessionId: string; title?: string; branch?: string; cwd?: string }
+  | { kind: "usage"; sessionId: string; at: string; agentId?: string; messageId: string; model: string; usage: TokenCounts }
+  | { kind: "meta"; sessionId: string; at: string; title?: string; branch?: string; cwd?: string }
   | { kind: "agentMeta"; sessionId: string; agentId: string; toolUseId: string; type: string; description: string; at: string };
 
 export interface State { sessions: Session[]; employees: Employee[] }
