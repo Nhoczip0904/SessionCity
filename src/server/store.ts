@@ -16,7 +16,7 @@ const addUsage = (t: Tokens, model: string, u: TokenCounts) => {
   add((t.byModel[model] ??= zero()), u);
 };
 
-interface Pending { type: string; description: string; prompt: string }
+interface Pending { sessionId: string; type: string; description: string; prompt: string }
 
 export class Store {
   private sessions = new Map<string, Session>();
@@ -24,22 +24,22 @@ export class Store {
   private lastEvent = new Map<string, number>(); // sessionId -> now() ms
   private endedAt = new Map<string, number>(); // agentId -> now() ms
   private pending = new Map<string, Pending>(); // toolUseId -> spawn info
-  private seen = new Set<string>(); // sessionId\0messageId already counted
+  private seen = new Map<string, Set<string>>(); // sessionId -> counted messageIds
   private dirtyS = new Set<string>();
   private dirtyE = new Set<string>();
   private removed: string[] = [];
 
   constructor(private now: () => number = Date.now) {}
 
-  private session(id: string): Session {
+  private session(id: string, at?: string): Session {
     let s = this.sessions.get(id);
     if (!s) {
       s = {
-        id, project: id.slice(0, 8), cwd: "", lastActivity: new Date(this.now()).toISOString(),
+        id, project: id.slice(0, 8), cwd: "", lastActivity: new Date(this.ms(at)).toISOString(),
         status: "waiting", district: "townhall", tokens: emptyTokens(), employees: [],
       };
       this.sessions.set(id, s);
-      this.lastEvent.set(id, this.now());
+      this.lastEvent.set(id, this.ms(at));
       this.dirtyS.add(id);
     }
     return s;
@@ -61,14 +61,27 @@ export class Store {
     return e;
   }
 
-  private activity(s: Session) {
-    this.lastEvent.set(s.id, this.now());
-    s.lastActivity = new Date(this.now()).toISOString();
+  /** Event time clamped to now(); now() when missing/invalid. */
+  private ms(at?: string): number {
+    const p = at ? Date.parse(at) : NaN;
+    return Number.isFinite(p) ? Math.min(p, this.now()) : this.now();
+  }
+
+  // at undefined (usage events carry no time): keep the last known activity time
+  private activity(s: Session, at?: string) {
+    if (at !== undefined) {
+      const prev = this.lastEvent.get(s.id) ?? 0;
+      const m = this.ms(at);
+      if (m > prev) {
+        this.lastEvent.set(s.id, m);
+        s.lastActivity = new Date(m).toISOString();
+      }
+    }
     this.dirtyS.add(s.id);
   }
 
   apply(e: Event): void {
-    const s = this.session(e.sessionId);
+    const s = this.session(e.sessionId, "at" in e ? e.at : undefined);
     if (e.kind === "meta") {
       let changed = false;
       const set = <K extends "title" | "branch" | "cwd">(k: K, v: string | undefined) => {
@@ -82,7 +95,7 @@ export class Store {
       if (changed) this.dirtyS.add(s.id);
       return;
     }
-    this.activity(s);
+    this.activity(s, "at" in e ? e.at : undefined);
     switch (e.kind) {
       case "prompt":
         s.status = "working"; s.district = "townhall";
@@ -96,7 +109,7 @@ export class Store {
         break;
       case "spawn": {
         s.status = "working";
-        const p: Pending = { type: cut(e.type), description: cut(e.description), prompt: cut(e.prompt) };
+        const p: Pending = { sessionId: e.sessionId, type: cut(e.type), description: cut(e.description), prompt: cut(e.prompt) };
         const emp = [...this.employees.values()].find((x) => x.toolUseId === e.toolUseId && e.toolUseId !== "");
         if (emp) {
           emp.prompt = p.prompt;
@@ -131,9 +144,10 @@ export class Store {
         break;
       case "usage": {
         if (e.messageId !== "") {
-          const k = `${e.sessionId}\0${e.messageId}`;
-          if (this.seen.has(k)) return;
-          this.seen.add(k);
+          let ids = this.seen.get(e.sessionId);
+          if (!ids) this.seen.set(e.sessionId, (ids = new Set()));
+          if (ids.has(e.messageId)) return;
+          ids.add(e.messageId);
         }
         addUsage(s.tokens, e.model, e.usage);
         if (e.agentId) addUsage(this.employee(e.sessionId, e.agentId, "").tokens, e.model, e.usage);
@@ -150,10 +164,20 @@ export class Store {
       if (age >= HIDE_MS) {
         for (const a of s.employees) this.dropEmployee(a, false);
         this.sessions.delete(id); this.lastEvent.delete(id); this.dirtyS.delete(id);
+        this.seen.delete(id);
+        for (const [k, p] of this.pending) if (p.sessionId === id) this.pending.delete(k);
         this.removed.push(id);
       } else if (age >= IDLE_MS && s.status !== "idle") {
         s.status = "idle"; s.district = "home";
         this.dirtyS.add(id);
+        for (const a of s.employees) {
+          const emp = this.employees.get(a);
+          if (emp && emp.status === "working") {
+            emp.status = "done"; emp.endedAt = new Date(now).toISOString();
+            this.endedAt.set(a, now);
+            this.dirtyE.add(a);
+          }
+        }
       }
     }
     for (const [a, at] of [...this.endedAt]) if (now - at >= DONE_MS) this.dropEmployee(a, true);
