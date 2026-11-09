@@ -8,6 +8,8 @@ export const ALIASES = ["opus", "sonnet", "haiku", "fable"] as const;
 export const SUB_ALIASES = ["haiku", "sonnet", "opus"] as const;
 export type Alias = (typeof ALIASES)[number];
 export type SubAlias = (typeof SUB_ALIASES)[number];
+// Thrown for problems in the input paths (not spawn failures); message is user-facing.
+export class LaunchInputError extends Error {}
 export interface LaunchOpts {
   cwd: string;
   model?: Alias;
@@ -70,7 +72,7 @@ export function buildLaunch(
   const run = [env.node, env.script, env.jobFile];
   if (env.wt)
     return { file: env.wt, args: ["-w", "new", "new-tab", "-d", opts.cwd, "--title", "BackendCity", ...run].map(esc) };
-  if ([opts.cwd, ...run].some((s) => CMD_META.test(s))) throw new Error("Đường dẫn chứa ký tự không an toàn");
+  if ([opts.cwd, ...run].some((s) => CMD_META.test(s))) throw new LaunchInputError("Đường dẫn chứa ký tự không an toàn");
   return { file: "cmd.exe", args: ["/c", "start", "", "/D", opts.cwd, ...run] };
 }
 
@@ -125,7 +127,7 @@ export function launch(
   };
   return new Promise<void>((resolveP, reject) => {
     try {
-      if (!/\.exe$/i.test(deps.claude)) throw new Error("Đường dẫn claude phải là tệp .exe");
+      if (!/\.exe$/i.test(deps.claude)) throw new LaunchInputError("Đường dẫn claude phải là tệp .exe");
       const settingsFile = opts.subagentModel ? write("backendcity", settingsJson(opts.subagentModel)) : undefined;
       const job = { claude: deps.claude, model: opts.model, settingsFile, prompt: opts.prompt };
       const jobFile = write("backendcity-job", JSON.stringify(job));
