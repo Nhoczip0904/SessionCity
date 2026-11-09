@@ -23,6 +23,33 @@
         position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 90vw;
         padding: 10px 16px; background: rgba(20, 20, 26, 0.9); border: 2px solid #000; text-align: center;
       }
+      #panel {
+        position: fixed; top: 32px; right: 0; bottom: 0; width: 360px; box-sizing: border-box; z-index: 5;
+        display: flex; flex-direction: column; background: #1c1c22; border-left: 2px solid #000;
+      }
+      #panel[hidden], #tooltip[hidden] { display: none; }
+      #panel .close { position: absolute; top: 6px; right: 8px; background: none; border: 0; color: #eee; font: inherit; font-size: 16px; cursor: pointer; }
+      #panel .banner { padding: 6px 12px; background: #5a3a10; color: #ffd23f; }
+      #panel .panel-body { flex: 1; overflow-y: auto; padding: 8px 12px 16px; }
+      #panel h2 { margin: 0 24px 4px 0; font-size: 16px; color: #fff; overflow-wrap: anywhere; }
+      #panel h3 { margin: 14px 0 4px; font-size: 12px; color: #9ad0ff; text-transform: uppercase; }
+      #panel .meta, #panel .muted { color: #aaa; overflow-wrap: anywhere; }
+      #panel pre { margin: 4px 0; padding: 6px; background: #121216; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow-y: auto; font: inherit; }
+      #panel .note { color: #f0a030; font-size: 11px; }
+      #panel .badge { padding: 0 6px; border: 1px solid currentColor; border-radius: 8px; font-size: 11px; }
+      #panel .badge.done { color: #aaa; }
+      #panel .tokens { width: 100%; border-collapse: collapse; }
+      #panel .tokens th, #panel .tokens td { padding: 1px 4px; text-align: right; }
+      #panel .tokens th:first-child { text-align: left; font-weight: normal; overflow-wrap: anywhere; }
+      #panel .staff-row, #panel .back { display: block; width: 100%; margin: 2px 0; padding: 4px 6px; text-align: left; font: inherit; color: #eee; background: #26262e; border: 1px solid #000; cursor: pointer; overflow-wrap: anywhere; }
+      #panel .back { width: auto; margin-bottom: 8px; }
+      #panel .step { font-size: 11px; padding: 1px 0; border-bottom: 1px solid #26262e; }
+      #tooltip {
+        position: fixed; z-index: 6; max-width: 280px; padding: 8px 10px; pointer-events: none;
+        background: rgba(20, 20, 26, 0.95); border: 2px solid #000;
+      }
+      #tooltip p { margin: 4px 0; } #tooltip ul { margin: 2px 0; padding-left: 18px; }
+      @media (max-width: 599px) { #panel { width: 100%; top: 0; border-left: 0; } }
     </style>
   </head>
   <body>
@@ -35,6 +62,8 @@
       <span id="conn" class="dot connecting" title="Đang kết nối…"></span>
     </div>
     <div id="hint" hidden></div>
+    <aside id="panel" hidden></aside>
+    <div id="tooltip" hidden></div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

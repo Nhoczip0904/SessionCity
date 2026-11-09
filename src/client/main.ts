@@ -1,11 +1,14 @@
 import { Application, Container, Rectangle, Sprite, Texture, TextureStyle, type Graphics } from "pixi.js";
 import type { Employee, Session } from "../shared/types.js";
-import { Actors, type PickKind } from "./actors.js";
+import { Actors } from "./actors.js";
 import { TILE, buildCity } from "./city.js";
 import { createHud } from "./hud.js";
 import { connect } from "./net.js";
+import { Panel, type Detail, type Kind } from "./panel.js";
 import { loadSheets } from "./tiles.js";
+import { Tooltip, plotAt, renderDistrictCard } from "./tooltip.js";
 import { Traffic } from "./traffic.js";
+import { districtInfo } from "../shared/districts.js";
 
 const HUD_H = 32;
 const NO_SESSIONS = "Chưa thấy phiên Claude Code nào trong ~/.claude/projects — mở Claude Code rồi quay lại.";
@@ -65,8 +68,20 @@ async function main() {
   app.renderer.on("resize", layout);
 
   const bake = (g: Graphics) => app.renderer.generateTexture({ target: g, resolution: 1 });
-  // shortcut: Task 6 replaces this with the detail panel
-  const onPick = (kind: PickKind, id: string) => console.debug("pick", kind, id);
+  const tip = new Tooltip(document.getElementById("tooltip")!);
+  const token = new URLSearchParams(location.search).get("token") ?? "";
+  const fetchDetail = async (kind: Kind, id: string): Promise<Detail | "gone"> => {
+    const res = await fetch(`/api/${kind}/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`);
+    if (res.status === 404) return "gone";
+    if (!res.ok) throw new Error(String(res.status));
+    return (await res.json()) as Detail;
+  };
+  const panelRoot = document.getElementById("panel")!;
+  const panel = new Panel(panelRoot, fetchDetail);
+  const onPick = (kind: Kind, id: string) => {
+    tip.hide();
+    void panel.open(kind, id);
+  };
   const actors = new Actors(city, layer, bake, sheets, onPick);
   const traffic = new Traffic(city, cars, sheets);
   app.ticker.add((t) => {
@@ -84,6 +99,32 @@ async function main() {
     hud.setHint(state.sessions.length ? null : NO_SESSIONS);
   };
 
+  // hover card: pointer → map pixels → plot
+  let pointer: PointerEvent | null = null;
+  const hover = () => {
+    if (!pointer) return tip.hide();
+    const mx = (pointer.clientX - world.x) / world.scale.x, my = (pointer.clientY - world.y) / world.scale.y;
+    const plot = plotAt(city.plots, mx, my);
+    if (!plot) return tip.hide();
+    const present = [
+      ...[...sessions.values()].filter((x) => x.district === plot.id).map((x) => x.project),
+      ...[...employees.values()].filter((x) => x.district === plot.id).map((x) => x.type),
+    ];
+    tip.show(renderDistrictCard(districtInfo(plot.id), present), pointer.clientX, pointer.clientY, innerWidth, innerHeight);
+  };
+  app.canvas.addEventListener("pointermove", (e) => {
+    pointer = e;
+    hover();
+  });
+  app.canvas.addEventListener("pointerleave", () => {
+    pointer = null;
+    tip.hide();
+  });
+  panelRoot.addEventListener("pointerenter", () => {
+    pointer = null;
+    tip.hide();
+  });
+
   connect(
     (s) => {
       sessions.clear();
@@ -100,6 +141,7 @@ async function main() {
         employees.delete(id);
       }
       apply();
+      panel.onDelta(d);
     },
     (c) => {
       hud.setConn(c);
