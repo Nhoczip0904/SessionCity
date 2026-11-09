@@ -69,6 +69,18 @@ export async function startServer(opts: {
     if (url.pathname.startsWith("/api/")) {
       if (!tokenOk(token, url.searchParams.get("token"))) return send(res, 401, "unauthorized");
       if (url.pathname === "/api/state") return send(res, 200, JSON.stringify(store.snapshot()), TYPES[".json"]);
+      const m = /^\/api\/(session|employee)\/([^/]+)$/.exec(url.pathname);
+      if (m) {
+        const json = (status: number, body: unknown) => send(res, status, JSON.stringify(body), TYPES[".json"]);
+        let id: string;
+        try {
+          id = decodeURIComponent(m[2]!);
+        } catch {
+          return json(400, { error: "bad request" });
+        }
+        const d = m[1] === "session" ? store.detailSession(id) : store.detailEmployee(id);
+        return d ? json(200, d) : json(404, { error: "not found" });
+      }
       return send(res, 404, "not found");
     }
     void serveStatic(url.pathname, res);
