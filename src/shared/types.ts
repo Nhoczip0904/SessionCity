@@ -1,0 +1,48 @@
+export type District =
+  | "townhall" | "library" | "design" | "site" | "database" | "lab"
+  | "review" | "factory" | "airport" | "watchtower" | "home";
+
+export interface TokenCounts { input: number; output: number; cacheRead: number; cacheWrite: number }
+export interface Tokens extends TokenCounts { byModel: Record<string, TokenCounts> }
+
+export interface Session {
+  id: string;
+  project: string;
+  cwd: string;
+  branch?: string;
+  title?: string;
+  model?: string;
+  lastActivity: string;
+  status: "working" | "waiting" | "idle";
+  district: District;
+  tokens: Tokens;
+  employees: string[];
+}
+
+export interface Employee {
+  id: string; // agentId
+  sessionId: string;
+  type: string;
+  description: string;
+  prompt: string;
+  toolUseId: string;
+  status: "working" | "done";
+  district: District;
+  startedAt: string;
+  endedAt?: string;
+  tokens: Tokens;
+}
+
+export type Event =
+  | { kind: "prompt"; sessionId: string; at: string }
+  | { kind: "tool"; sessionId: string; agentId?: string; at: string; name: string; input: unknown; district: District | null }
+  | { kind: "spawn"; sessionId: string; at: string; toolUseId: string; type: string; description: string; prompt: string }
+  | { kind: "report"; sessionId: string; at: string; toolUseId: string; text: string }
+  | { kind: "turnEnd"; sessionId: string; agentId?: string; at: string }
+  | { kind: "usage"; sessionId: string; agentId?: string; model: string; usage: TokenCounts }
+  | { kind: "meta"; sessionId: string; title?: string; branch?: string; cwd?: string }
+  | { kind: "agentMeta"; sessionId: string; agentId: string; toolUseId: string; type: string; description: string; at: string };
+
+export interface State { sessions: Session[]; employees: Employee[] }
+/** Changed items only; `removed` = ids of hidden sessions/employees. */
+export interface Delta { sessions: Session[]; employees: Employee[]; removed: string[] }

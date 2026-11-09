@@ -1,0 +1,15 @@
+[
+  { "district": "library", "tool": "^(Read|Grep|Glob|WebSearch|WebFetch|LS)$" },
+  { "district": "design", "tool": "^(TodoWrite|EnterPlanMode|ExitPlanMode)$" },
+  { "district": "design", "tool": "^(Write|Edit|MultiEdit|NotebookEdit)$", "path": "(^|[\\\\/])docs[\\\\/]" },
+  { "district": "design", "tool": "^(Write|Edit|MultiEdit|NotebookEdit)$", "path": "\\.md$" },
+  { "district": "database", "tool": "^(Write|Edit|MultiEdit|NotebookEdit)$", "path": "[\\\\/]Migrations[\\\\/]" },
+  { "district": "database", "tool": "^(Write|Edit|MultiEdit|NotebookEdit)$", "path": "\\.sql$" },
+  { "district": "site", "tool": "^(Edit|Write|MultiEdit|NotebookEdit)$" },
+  { "district": "database", "tool": "^Bash$", "command": "dotnet ef|migrat|prisma|flyway|liquibase|psql|sqlcmd" },
+  { "district": "lab", "tool": "^Bash$", "command": "dotnet test|npm (run )?test|vitest|jest|pytest|go test|mvn test" },
+  { "district": "factory", "tool": "^Bash$", "command": "dotnet build|npm run build|\\btsc\\b|docker build|gh run" },
+  { "district": "airport", "tool": "^Bash$", "command": "git push|docker push|kubectl apply|\\baz |vercel|deploy" },
+  { "district": "review", "tool": "^Bash$", "command": "git (diff|log|commit|status|merge|rebase)|gh pr" },
+  { "district": "watchtower", "tool": "^Bash$", "command": "docker logs|kubectl logs|curl .*health|tail -f" }
+]
