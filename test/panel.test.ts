@@ -45,15 +45,35 @@ describe("renderSession", () => {
     (el.querySelector("[data-employee]") as HTMLElement).click();
     expect(pick).toHaveBeenCalledWith("work1");
   });
-  it("shows only the 20 newest steps; step row has overflow-wrap:anywhere", () => {
-    const steps = Array.from({ length: 30 }, (_, i) => step(i));
+  it("shows only the 20 newest steps (input newest-first); step row has overflow-wrap:anywhere", () => {
+    const steps = Array.from({ length: 30 }, (_, i) => step(29 - i)); // [0] = newest = step-29
     const el = renderSession(session({ steps }), NOW, () => {});
     const rows = el.querySelectorAll(".step");
     expect(rows.length).toBe(20);
     expect((rows[0] as HTMLElement).style.overflowWrap).toBe("anywhere");
-    expect(el.textContent).toContain("step-29;");
-    expect(el.textContent).toContain("step-10;");
+    expect(rows[0].textContent).toContain("step-29;");
+    expect(rows[19].textContent).toContain("step-10;");
     expect(el.textContent).not.toContain("step-9;");
+  });
+  it("truncated lastPrompt shows the rút gọn note", () => {
+    const el = renderSession(session({ lastPrompt: "abc…" }), NOW, () => {});
+    expect(el.querySelector("details")!.textContent).toContain("(đã rút gọn — xem đầy đủ trong transcript)");
+    expect(renderSession(session({ lastPrompt: "abc" }), NOW, () => {}).textContent).not.toContain("rút gọn");
+  });
+  it("step with empty or unparseable at shows — not Invalid", () => {
+    const steps = [{ ...step(1), at: "" }, { ...step(2), at: "garbage" }];
+    const el = renderSession(session({ steps }), NOW, () => {});
+    expect(el.textContent).not.toContain("Invalid");
+    expect(el.querySelectorAll(".step")[0].textContent!.startsWith("— · ")).toBe(true);
+  });
+  it("<img onerror> in step summary, report and model name stays text", () => {
+    const x = "<img src=x onerror=alert(1)>";
+    const s = renderSession(session({ steps: [{ ...step(1), summary: x }], tokens: { ...tokens, byModel: { [x]: tokens } } }), NOW, () => {});
+    const e = renderEmployee(employee({ report: x, models: [x], steps: [{ ...step(1), summary: x }] }), NOW, () => {});
+    for (const el of [s, e]) {
+      expect(el.querySelector("img")).toBeNull();
+      expect(el.textContent).toContain(x);
+    }
   });
 });
 
@@ -79,9 +99,12 @@ describe("renderEmployee", () => {
     (el.querySelector("button") as HTMLElement).click();
     expect(back).toHaveBeenCalled();
   });
-  it("renders at most 100 steps", () => {
-    const steps = Array.from({ length: 120 }, (_, i) => step(i));
-    expect(renderEmployee(employee({ steps }), NOW, () => {}).querySelectorAll(".step").length).toBe(100);
+  it("renders the 100 newest steps (input newest-first)", () => {
+    const steps = Array.from({ length: 120 }, (_, i) => step(119 - i));
+    const rows = renderEmployee(employee({ steps }), NOW, () => {}).querySelectorAll(".step");
+    expect(rows.length).toBe(100);
+    expect(rows[0].textContent).toContain("step-119;");
+    expect(rows[99].textContent).toContain("step-20;");
   });
 });
 

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import { districtInfo } from "../src/shared/districts.js";
-import { Tooltip, plotAt, renderDistrictCard } from "../src/client/tooltip.js";
+import { Tooltip, plotAt, presentAt, renderDistrictCard } from "../src/client/tooltip.js";
 
 describe("renderDistrictCard", () => {
   it("district card lists examples and caps present names at 6", () => {
@@ -47,5 +47,17 @@ describe("Tooltip", () => {
     expect(parseInt(el.style.top)).toBe(700);
     t.hide();
     expect(el.hidden).toBe(true);
+  });
+});
+
+describe("presentAt", () => {
+  it("lists sessions and only working employees in the district", () => {
+    const sessions = [{ district: "lab", project: "p1" }, { district: "site", project: "p2" }];
+    const employees = [
+      { district: "lab", type: "Explore", status: "working" },
+      { district: "lab", type: "Done1", status: "done" },
+      { district: "lab", type: "Wait", status: "waiting" },
+    ];
+    expect(presentAt("lab", sessions as never, employees as never)).toEqual(["p1", "Explore"]);
   });
 });

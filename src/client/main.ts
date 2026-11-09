@@ -6,7 +6,7 @@ import { createHud } from "./hud.js";
 import { connect } from "./net.js";
 import { Panel, type Detail, type Kind } from "./panel.js";
 import { loadSheets } from "./tiles.js";
-import { Tooltip, plotAt, renderDistrictCard } from "./tooltip.js";
+import { Tooltip, plotAt, presentAt, renderDistrictCard } from "./tooltip.js";
 import { Traffic } from "./traffic.js";
 import { districtInfo } from "../shared/districts.js";
 
@@ -106,10 +106,7 @@ async function main() {
     const mx = (pointer.clientX - world.x) / world.scale.x, my = (pointer.clientY - world.y) / world.scale.y;
     const plot = plotAt(city.plots, mx, my);
     if (!plot) return tip.hide();
-    const present = [
-      ...[...sessions.values()].filter((x) => x.district === plot.id).map((x) => x.project),
-      ...[...employees.values()].filter((x) => x.district === plot.id).map((x) => x.type),
-    ];
+    const present = presentAt(plot.id, [...sessions.values()], [...employees.values()]);
     tip.show(renderDistrictCard(districtInfo(plot.id), present), pointer.clientX, pointer.clientY, innerWidth, innerHeight);
   };
   app.canvas.addEventListener("pointermove", (e) => {

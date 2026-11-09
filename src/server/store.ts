@@ -102,7 +102,7 @@ export class Store {
     this.activity(s, e.at);
     switch (e.kind) {
       case "prompt":
-        this.lastPrompt.set(s.id, cut(e.text));
+        if (e.text) this.lastPrompt.set(s.id, cut(e.text));
         s.status = "working"; s.district = "townhall";
         break;
       case "tool": {
