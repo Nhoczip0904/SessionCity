@@ -152,3 +152,43 @@ describe("http", () => {
     ws!.close();
   });
 });
+
+describe("detail routes", () => {
+  const AT = new Date().toISOString();
+  const SID = "ses:detail1";
+  const AID = "ag:detail1";
+  beforeAll(() => {
+    store.apply({ kind: "prompt", sessionId: SID, at: AT, text: "hello" });
+    store.apply({ kind: "spawn", sessionId: SID, at: AT, toolUseId: "tuD", type: "Explore", description: "d", prompt: "p" });
+    store.apply({ kind: "agentMeta", sessionId: SID, agentId: AID, toolUseId: "tuD", type: "Explore", description: "d", at: AT });
+  });
+  const q = (p: string) => get(`${p}${p.includes("?") ? "&" : "?"}token=${TOKEN}`);
+
+  it("both routes -> 401 without token", async () => {
+    expect((await get(`/api/session/${encodeURIComponent(SID)}`)).status).toBe(401);
+    expect((await get(`/api/employee/${encodeURIComponent(AID)}`)).status).toBe(401);
+  });
+  it("unknown id -> 404 JSON", async () => {
+    for (const p of ["/api/session/nope", "/api/employee/nope"]) {
+      const r = await q(p);
+      expect(r.status, p).toBe(404);
+      expect(JSON.parse(r.body)).toEqual({ error: "not found" });
+    }
+  });
+  it("known ids -> detail body, ':' sent as %3A resolves", async () => {
+    const s = await q(`/api/session/${SID.replace(":", "%3A")}`);
+    expect(s.status).toBe(200);
+    expect(s.type).toContain("application/json");
+    expect(JSON.parse(s.body)).toMatchObject({ id: SID, lastPrompt: "hello", steps: [] });
+    const e = await q(`/api/employee/${AID.replace(":", "%3A")}`);
+    expect(e.status).toBe(200);
+    expect(JSON.parse(e.body)).toMatchObject({ id: AID, type: "Explore", steps: [], models: [] });
+  });
+  it("malformed encoding -> 400 JSON; extra segment -> 404", async () => {
+    const bad = await q("/api/session/%E0%A4%A");
+    expect(bad.status).toBe(400);
+    expect(JSON.parse(bad.body)).toEqual({ error: "bad request" });
+    expect((await q("/api/session/a/b")).status).toBe(404);
+    expect((await q("/api/employee/")).status).toBe(404);
+  });
+});
