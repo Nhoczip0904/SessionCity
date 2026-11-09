@@ -50,7 +50,10 @@ export function parseLine(line: string, ctx: LineContext, rules: Rule[]): Event[
     for (const r of results)
       out.push({ kind: "report", sessionId, at, toolUseId: r.tool_use_id as string, text: resultText(r.content) });
     const isText = typeof msg.content === "string" || parts.some((b) => b.type === "text");
-    if (isText && results.length === 0 && !agentId) out.push({ kind: "prompt", sessionId, at });
+    if (isText && results.length === 0 && !agentId) {
+      const text = typeof msg.content === "string" ? msg.content : resultText(parts);
+      out.push({ kind: "prompt", sessionId, at, text });
+    }
   } else if (rec.type === "assistant") {
     const uses = blocks(msg.content).filter((b) => b.type === "tool_use" && typeof b.name === "string");
     for (const u of uses) {

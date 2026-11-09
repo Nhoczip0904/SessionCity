@@ -144,7 +144,7 @@ describe("http", () => {
     expect(ws).toBeDefined();
     await new Promise((r) => setTimeout(r, 100));
     expect(msgs[0]).toMatchObject({ type: "state", state: { sessions: [], employees: [] } });
-    store.apply({ kind: "prompt", sessionId: "abcdef123456", at: new Date().toISOString() });
+    store.apply({ kind: "prompt", sessionId: "abcdef123456", at: new Date().toISOString(), text: "hi" });
     const end = Date.now() + 3000;
     while (!msgs.some((m) => m.type === "delta") && Date.now() < end) await new Promise((r) => setTimeout(r, 25));
     const d = msgs.find((m) => m.type === "delta");
