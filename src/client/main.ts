@@ -156,7 +156,7 @@ async function main() {
       people.forEach((o, i) => seats.push({ at: spots[i], kind: o.kind, id: o.id, label: o.name, badge: o.badge, done: o.done }));
       return {
         seats,
-        board: [info.label, info.sign, info.description, info.examples.join(", ")],
+        board: [`${info.label} — ${info.sign}`, info.description, ...(info.examples.length ? [info.examples.join(", ")] : [])],
         note: people.length ? (extra ? `+${extra}` : null) : "Chưa ai làm ở đây",
         theme: ROOM_THEMES[place.district] ?? DEFAULT_THEME,
       };
@@ -241,6 +241,7 @@ async function main() {
       s.sessions.forEach((x) => sessions.set(x.id, x));
       s.employees.forEach((x) => employees.set(x.id, x));
       apply();
+      if (scene.place.kind === "office" && !sessions.has(scene.place.sessionId)) scene.exit(); // stale after a reconnect
     },
     (d) => {
       d.sessions.forEach((x) => sessions.set(x.id, x));

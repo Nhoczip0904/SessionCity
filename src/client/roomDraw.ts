@@ -13,6 +13,12 @@ const TEXT = {
 const label = (text: string) => new Text({ text, ...TEXT });
 const darker = (c: number) => ((c >> 16) * 0.92 << 16) | (((c >> 8) & 255) * 0.92 << 8) | ((c & 255) * 0.92) & 0xffffff;
 
+const BOARD_CHARS = 54; // ≈ (room width − margin) / glyph width of the 7 px monospace font
+
+/** At most 3 lines, each cut with "…" to fit the wall band. */
+export const fitBoard = (lines: string[], max = BOARD_CHARS) =>
+  lines.slice(0, 3).map((l) => (l.length > max ? l.slice(0, max - 1) + "…" : l));
+
 export interface Seat { at: Pt; big?: boolean; fig: Container | null; label: string; badge: string; done: boolean; onPick: () => void }
 
 export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[], board: string[], note: string | null, onFurniture: (f: Furniture) => void): Container {
@@ -59,7 +65,7 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
     }
   }
 
-  const lines = board.slice(0, 3);
+  const lines = fitBoard(board);
   lines.forEach((l, i) => {
     const t = label(l);
     t.style.fontSize = 7;
