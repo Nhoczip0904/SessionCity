@@ -30,6 +30,20 @@ afterEach(() => {
 });
 
 describe("Scene", () => {
+  it("a refetch whose detail changes but whose key does not keeps the room", async () => {
+    let n = 0;
+    const { scene, mount, draw, key } = make(async (id) => ({ id, tokens: ++n }) as unknown as SessionDetail);
+    key.mockReturnValue("same");
+    scene.enter(office("a"));
+    await flush();
+    const room = mount.children[0];
+    expect(key).toHaveBeenLastCalledWith(office("a"), expect.objectContaining({ tokens: 1 }), false);
+    scene.onDelta(delta({ sessions: [{ id: "a" } as never] }));
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(key).toHaveBeenLastCalledWith(office("a"), expect.objectContaining({ tokens: 2 }), false);
+    expect(draw).toHaveBeenCalledTimes(1);
+    expect(mount.children[0]).toBe(room);
+  });
   it("redraw with an unchanged key keeps the room; a new key or place rebuilds", () => {
     const { scene, mount, draw, key } = make();
     key.mockReturnValue("a");
