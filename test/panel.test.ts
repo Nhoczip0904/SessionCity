@@ -110,11 +110,18 @@ describe("renderEmployee", () => {
 
 describe("Panel", () => {
   const delta = (id: string): Delta => ({ sessions: [{ ...session(), id } as never], employees: [], removed: [] });
+  let added: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
+    added = vi.spyOn(document, "addEventListener");
   });
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    // panels from earlier tests must not swallow Esc in later ones
+    for (const [t, l] of added.mock.calls) if (t === "keydown") document.removeEventListener(t, l as EventListener);
+    added.mockRestore();
+    vi.useRealTimers();
+  });
 
   it("Panel shows ended banner on gone and keeps content", async () => {
     const root = document.createElement("div");
@@ -183,6 +190,14 @@ describe("Panel", () => {
     await p.open("session", "s1");
     (root.querySelector(".close") as HTMLElement).click();
     expect(root.hidden).toBe(true);
+  });
+  it("Esc on a closed panel does not stop propagation", () => {
+    new Panel(document.createElement("div"), vi.fn());
+    const later = vi.fn();
+    document.addEventListener("keydown", later);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.removeEventListener("keydown", later);
+    expect(later).toHaveBeenCalledTimes(1);
   });
   it("collapsed prompt stays collapsed across refresh; a newly opened actor starts open", async () => {
     const root = document.createElement("div");
