@@ -117,6 +117,15 @@ export class Actors {
       h.eventMode = "none";
       h.zIndex = -1;
       h.on("pointertap", () => { const id = this.hqOwner[i]; if (id) this.onEnter({ kind: "office", sessionId: id }); });
+      // empty houses are dimmed; a lived-in one carries its project's name on a plate
+      const dim = new Graphics().rect(r.x, r.y, r.w, r.h).fill({ color: 0x000000, alpha: 0.45 });
+      const plate = new Container();
+      const name = new Text({ text: "", ...LIVE_TEXT, style: { ...LIVE_TEXT.style, fontSize: 6 } });
+      name.anchor.set(0.5);
+      plate.addChild(new Graphics(), name);
+      plate.position.set(r.x + r.w / 2, r.y + r.h / 2);
+      plate.visible = false;
+      h.addChild(dim, plate);
       layer.addChild(h);
       return h;
     });
@@ -280,7 +289,20 @@ export class Actors {
       }
       this.setHome(m, this.door(s.district), s.status === "working");
     }
-    this.hqHits.forEach((h, i) => (h.eventMode = this.hqOwner[i] ? "static" : "none"));
+    this.hqHits.forEach((h, i) => {
+      const s = byId.get(this.hqOwner[i] ?? "");
+      h.eventMode = s ? "static" : "none";
+      const [dim, plate] = h.children as [Graphics, Container];
+      dim.visible = !s;
+      plate.visible = !!s;
+      if (!s) return;
+      const [bg, name] = plate.children as [Graphics, Text];
+      const text = s.project.length > 7 ? s.project.slice(0, 6) + "…" : s.project;
+      if (name.text === text) return;
+      name.text = text;
+      const w = Math.min(name.width + 4, 30);
+      bg.clear().roundRect(-w / 2, -5, w, 10, 2).fill(0x2a2a3a).stroke({ color: 0xd8c08a, width: 1 });
+    });
 
     // employees: working ones only, newest first, capped per session
     const groups = new Map<string, Employee[]>();
