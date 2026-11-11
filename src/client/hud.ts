@@ -21,6 +21,11 @@ export function createHud(on: { launch: () => void; rules: () => void }) {
       dot.className = `dot ${c}`;
       dot.title = CONN_TEXT[c];
     },
+    setPlace(name: string | null, onBack: () => void) {
+      $("btn-back").hidden = $("place-name").hidden = name === null;
+      $("place-name").textContent = name ?? "";
+      $("btn-back").onclick = onBack;
+    },
     setHint(text: string | null) {
       const el = $("hint");
       el.textContent = text ?? "";
