@@ -13,7 +13,7 @@ export interface Prop { tiles: number[]; w: number; x: number; y: number; name?:
 export type FloorKind = "wood" | "tile" | "concrete";
 /** Procedural, partly animated set piece that makes a department recognisable. */
 export type Layout = "office" | "hall";
-export type Spot = Pt & { big?: boolean };
+export type Spot = Pt & { big?: boolean; /** sits below its desk, facing up */ back?: boolean };
 export type Decor = "shelves" | "pinboard" | "worksite" | "racks" | "flasks" | "diff" | "conveyor" | "carousel" | "radar" | "fireplace" | "stage";
 export interface RoomTheme {
   floor: number; wall: number; kind: FloorKind;
@@ -123,8 +123,11 @@ export function deskSpots(n: number, layout: Layout = "office"): Spot[] {
   if (layout === "hall") {
     out.push({ x: 7, y: 3, big: true }); // the one desk, 3 wide on the stage
     for (const y of [5, 7, 9]) for (const x of [2, 5, 10, 13]) if (out.length < MAX_DESKS) out.push({ x, y }); // a chair, no desk
-  } // two pods of side-by-side desks, aisle to the door in between; chair tile y, 2-wide desk at x..x+1, row y+1
-  else for (const y of [5, 7, 9]) for (const x of [2, 4, 10, 12]) out.push({ x, y });
+  } else {
+    // two pods of 3 desks facing 3 desks, aisle to the door in between; 2-wide desks at x..x+1
+    for (const x of [1, 3, 5, 9, 11, 13]) out.push({ x, y: 6 }); // chair row 6, desk row 7
+    for (const x of [1, 3, 5, 9, 11, 13]) out.push({ x, y: 9, back: true }); // desk row 8, chair row 9
+  }
   return out.slice(0, Math.min(n, MAX_DESKS));
 }
 

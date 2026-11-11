@@ -30,8 +30,8 @@ const BOARD_CHARS = 41; // ≈ board inner width (BOARD_W·16 − 10 px) / glyph
 export const fitBoard = (lines: string[], max = BOARD_CHARS) =>
   lines.slice(0, 3).map((l) => (l.length > max ? l.slice(0, max - 1) + "…" : l));
 
-/** `at` is the chair tile: a 2-wide desk sits at x..x+1 on the row below (big: 3-wide, centred on the chair). */
-export interface Seat { at: Pt; big?: boolean; fig: Container | null; label: string; badge: string; done: boolean; onPick: () => void }
+/** `at` is the chair tile: a 2-wide desk sits at x..x+1 on the row below, or above when `back` (big: 3-wide, centred on the chair). */
+export interface Seat { at: Pt & { back?: boolean }; big?: boolean; fig: Container | null; label: string; badge: string; done: boolean; onPick: () => void }
 
 function drawFloor(g: Graphics, theme: RoomTheme) {
   const base = theme.floor;
@@ -186,7 +186,7 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
   const desk = theme.desk ?? { tiles: K.IN_DESK, monitor: true };
   const hall = theme.layout === "hall";
   const span = (big: boolean) => (big ? { left: -1, w: 3 } : hall ? { left: 0, w: 1 } : { left: 0, w: 2 });
-  const station = (x: number, y: number, big: boolean, fig: Container | null, on: boolean): Container => {
+  const station = (x: number, y: number, big: boolean, fig: Container | null, on: boolean, back = false): Container => {
     const { w } = span(big), left = x + span(big).left;
     const cx = (left + w / 2) * T;
     const c = new Container();
@@ -199,46 +199,69 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
       }
       return c;
     }
-    blob(cx, (y + 2) * T - 1, w * T * 0.45);
-    if (!big && desk.monitor) {
-      // cubicle: low back panel and side screens, so the pods read as an office
-      const pg = new Graphics();
-      pg.rect(left * T, y * T - 3, w * T, 3).fill(0x7d8b99).rect(left * T, y * T - 3, w * T, 1).fill(0xa9b6c2);
-      for (const sx of [left * T - 1, (left + w) * T - 1]) pg.rect(sx, y * T - 3, 2, 2 * T + 1).fill(0x7d8b99).rect(sx, y * T - 3, 1, 2 * T + 1).fill(0xa9b6c2);
-      c.addChild(pg);
+    const deskTiles = big ? K.IN_BIG_DESK : desk.tiles;
+    const mx = (left + w - 1) * T + 2;
+    // a bit of clutter: papers or a mug beside the screen
+    const clutter = (dy: number) => {
+      const g = new Graphics();
+      if ((x + y) % 2) g.rect(left * T + 4, dy, 7, 5).fill(0xf4f1e8).rect(left * T + 6, dy - 1, 7, 5).fill(0xffffff).stroke({ color: 0xcfc8b8, width: 0.5 });
+      else g.rect(left * T + 6, dy, 4, 5).fill(0xe8e8e8).rect(left * T + 10, dy + 1, 1.5, 2).fill(0xe8e8e8).rect(left * T + 6.5, dy + 0.5, 3, 1).fill(0x6b3a1e);
+      return g;
+    };
+    if (back) {
+      // facing up: desk above, screen seen from the front, the person's back to us
+      blob(cx, (y + 1) * T - 1, w * T * 0.45);
+      deskTiles.forEach((i, n) => c.addChild(sprite(i, (left + n) * T, (y - 1) * T, 0x8b5a2b)));
+      const m = sprite(K.IN_MONITOR, mx, (y - 1) * T - 4, 0x333333);
+      if (!on && m instanceof Sprite) m.tint = 0x707070;
+      c.addChild(m, clutter((y - 1) * T + 4));
+      if (fig) {
+        fig.position.set(Math.round(cx), y * T + 10); // only the top of the head shows over the chair back
+        c.addChild(fig);
+      }
+      c.addChild(sprite(K.IN_CHAIR_BACK, cx - T / 2, y * T - 3, 0x555555));
+      return c;
     }
+    blob(cx, (y + 2) * T - 1, w * T * 0.45);
     c.addChild(sprite(K.IN_CHAIR, cx - T / 2, y * T + 2, 0x555555));
     if (fig) {
       fig.position.set(Math.round(cx), (y + 1) * T + 5); // legs hidden behind the desk
       c.addChild(fig);
     }
-    (big ? K.IN_BIG_DESK : desk.tiles).forEach((i, n) => c.addChild(sprite(i, (left + n) * T, (y + 1) * T, 0x8b5a2b)));
-    if (big || desk.monitor) {
-      const m = sprite(K.IN_MONITOR, (left + w - 1) * T + 2, (y + 1) * T - 6, 0x333333);
+    deskTiles.forEach((i, n) => c.addChild(sprite(i, (left + n) * T, (y + 1) * T, 0x8b5a2b)));
+    if (big) {
+      const m = sprite(K.IN_MONITOR, mx, (y + 1) * T - 6, 0x333333);
       if (!on && m instanceof Sprite) m.tint = 0x707070; // screen off
       c.addChild(m);
+    } else {
+      // facing down: we see the back of the screen, at the desk edge it shares with the one opposite
+      c.addChild(new Graphics().rect(mx + 2, (y + 1) * T + 4, 12, 9).fill(0x3a3f48).rect(mx + 3, (y + 1) * T + 5, 10, 1).fill(0x59606c)
+        .rect(mx + 7, (y + 1) * T + 13, 2, 3).fill(0x2a2e35));
     }
+    if (!big) c.addChild(clutter((y + 1) * T + 6));
     return c;
   };
 
   // every workstation is there, taken or not
   const taken = new Set(seats.map((s) => `${s.at.x},${s.at.y}`));
-  for (const p of deskSpots(MAX_DESKS, theme.layout)) if (!taken.has(`${p.x},${p.y}`)) root.addChild(station(p.x, p.y, !!p.big, null, false));
+  for (const p of deskSpots(MAX_DESKS, theme.layout)) if (!taken.has(`${p.x},${p.y}`)) root.addChild(station(p.x, p.y, !!p.big, null, false, p.back));
 
   for (const s of seats) {
     const { x, y } = s.at;
     const { w } = span(!!s.big), left = x + span(!!s.big).left;
     const cx = (left + w / 2) * T;
-    const seat = station(x, y, !!s.big, s.fig && !s.done ? s.fig : null, !s.done);
-    const name = s.label.length > 14 ? s.label.slice(0, 13) + "…" : s.label; // same cut as the street labels; neighbours sit 4 tiles apart
+    const back = !!s.at.back;
+    const seat = station(x, y, !!s.big, s.fig && !s.done ? s.fig : null, !s.done, back);
+    const max = s.big || hall ? 14 : 8; // pod neighbours sit only 2 tiles apart
+    const name = s.label.length > max ? s.label.slice(0, max - 1) + "…" : s.label;
     const t = label(s.done ? `✓ ${name}` : `${s.badge ? s.badge + " " : ""}${name}`);
-    t.anchor.set(0.5, 1);
-    t.position.set(cx, y * T + 2);
+    t.anchor.set(0.5, back ? 0 : 1);
+    t.position.set(cx, back ? (y + 1) * T - 2 : y * T + 2);
     if (s.done) t.alpha = 0.7;
     seat.addChild(t);
     seat.eventMode = "static";
     seat.cursor = "pointer";
-    seat.hitArea = new Rectangle(left * T, y * T - 6, w * T, 2 * T + 6);
+    seat.hitArea = back ? new Rectangle(left * T, (y - 1) * T, w * T, 2 * T + 8) : new Rectangle(left * T, y * T - 6, w * T, 2 * T + 6);
     seat.on("pointertap", s.onPick);
     root.addChild(seat);
   }
