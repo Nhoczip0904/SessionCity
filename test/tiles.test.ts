@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Texture, TextureSource } from "pixi.js";
-import { loadSheets } from "../src/client/tiles.js";
+import * as tiles from "../src/client/tiles.js";
+import { loadSheets, OUTFIT_CITIZEN, SHIRT_COLORS, TSHIRT, SHIRT, JACKET, SUIT } from "../src/client/tiles.js";
 
 const frame = (t: Texture) => ({ x: t.frame.x, y: t.frame.y, w: t.frame.width, h: t.frame.height });
 
@@ -31,5 +32,12 @@ describe("loadSheets", () => {
     expect(sheets).not.toBeNull();
     expect(sheets!.indoor).toBeUndefined();
     expect(frame(sheets!.city(0)).w).toBe(16);
+  });
+
+  it("citizen shirt matches no staff outfit", () => {
+    const taken = new Set<string>();
+    for (const [cx, cy] of SHIRT_COLORS) for (const [dx, dy] of [TSHIRT, SHIRT, JACKET, SUIT]) taken.add(`${cx + dx},${cy + dy}`);
+    for (const [k, o] of Object.entries(tiles)) if (k.startsWith("OUTFIT_") && k !== "OUTFIT_CITIZEN" && !(o as tiles.Outfit).own) taken.add((o as tiles.Outfit).shirt.join(","));
+    expect(taken.has(OUTFIT_CITIZEN.shirt.join(","))).toBe(false);
   });
 });

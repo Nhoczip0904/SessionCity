@@ -133,4 +133,4 @@ export const OUTFIT_GENERAL: Outfit = { shirt: TSHIRT, own: true, hair: HAIR };
 export const OUTFIT_REVIEW: Outfit = { shirt: [12, 6], own: false, hair: HAIR }; // gray suit
 export const OUTFIT_TEST: Outfit = { shirt: [12, 4], own: false, hair: HAIR }; // white coat
 export const OUTFIT_OTHER: Outfit = { shirt: [10, 5], own: false, hair: HAIR }; // gray t-shirt
-export const OUTFIT_CITIZEN: Outfit = { shirt: [7, 5], own: false, hair: HAIR }; // green shirt
+export const OUTFIT_CITIZEN: Outfit = { shirt: [9, 3], own: false, hair: HAIR }; // tan shirt, outside every colour block
