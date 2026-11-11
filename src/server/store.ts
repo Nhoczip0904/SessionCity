@@ -27,6 +27,7 @@ export class Store {
   private sessions = new Map<string, Session>();
   private employees = new Map<string, Employee>();
   private lastEvent = new Map<string, number>(); // sessionId -> now() ms
+  private agentLast = new Map<string, number>(); // agentId -> time of its last event, ms
   private endedAt = new Map<string, number>(); // agentId -> now() ms
   private pending = new Map<string, Pending>(); // toolUseId -> spawn info
   private seen = new Map<string, Set<string>>(); // sessionId -> counted messageIds
@@ -87,6 +88,7 @@ export class Store {
 
   apply(e: Event): void {
     const s = this.session(e.sessionId, e.at);
+    if ("agentId" in e && e.agentId) this.agentLast.set(e.agentId, Math.max(this.agentLast.get(e.agentId) ?? 0, this.ms(e.at)));
     if (e.kind === "meta") {
       let changed = false;
       const set = <K extends "title" | "branch" | "cwd">(k: K, v: string | undefined) => {
@@ -217,13 +219,18 @@ export class Store {
         }
       }
     }
+    // a background agent whose end notification fell outside the tailed window: quiet as long as an idle session → done
+    for (const [id, emp] of this.employees) {
+      const last = this.agentLast.get(id) ?? this.ms(emp.startedAt);
+      if (emp.status === "working" && now - last >= IDLE_MS) this.finish(emp, new Date(last).toISOString());
+    }
     for (const [a, at] of [...this.endedAt]) if (now - at >= DONE_MS) this.dropEmployee(a, true);
   }
 
   private dropEmployee(id: string, detach: boolean) {
     const e = this.employees.get(id);
     if (!e) return;
-    this.employees.delete(id); this.extra.delete(id); this.endedAt.delete(id); this.dirtyE.delete(id);
+    this.employees.delete(id); this.extra.delete(id); this.endedAt.delete(id); this.dirtyE.delete(id); this.agentLast.delete(id);
     this.removed.push(id);
     if (detach) {
       const s = this.sessions.get(e.sessionId);

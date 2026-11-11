@@ -20,6 +20,12 @@ function resultText(content: unknown): string {
     .join("\n");
 }
 
+/** A background agent's end, announced by a <task-notification>, closes the Agent call it came from. */
+function taskDone(raw: string, sessionId: string, at: string): Event | null {
+  const m = /<task-notification>[\s\S]*?<tool-use-id>([^<]+)<\/tool-use-id>[\s\S]*?<status>(completed|failed|stopped|killed)<\/status>(?:[\s\S]*?<summary>([^<]*)<\/summary>)?/.exec(raw);
+  return m ? { kind: "report", sessionId, at, toolUseId: m[1].trim(), text: (m[3] ?? "").trim() } : null;
+}
+
 export function parseLine(line: string, ctx: LineContext, rules: Rule[]): Event[] {
   let rec: unknown;
   try {
@@ -47,15 +53,24 @@ export function parseLine(line: string, ctx: LineContext, rules: Rule[]): Event[
   if (rec.type === "user" && rec.isMeta !== true) {
     const parts = blocks(msg.content);
     const results = parts.filter((b) => b.type === "tool_result" && typeof b.tool_use_id === "string");
-    for (const r of results)
-      out.push({ kind: "report", sessionId, at, toolUseId: r.tool_use_id as string, text: resultText(r.content) });
+    for (const r of results) {
+      const text = resultText(r.content);
+      // a background Agent call returns at once; its real end arrives later as a <task-notification>
+      if (!text.startsWith("Async agent launched")) out.push({ kind: "report", sessionId, at, toolUseId: r.tool_use_id as string, text });
+    }
     const isText = typeof msg.content === "string" || parts.some((b) => b.type === "text");
     if (isText && results.length === 0 && !agentId) {
       const raw = typeof msg.content === "string" ? msg.content : resultText(parts);
       // not typed by the human: still a prompt event (status/townhall), but no text for lastPrompt
       const synthetic = rec.isCompactSummary === true || /^(<task-notification|<local-command-|<system-reminder|\[Request interrupted)/.test(raw.trimStart());
       out.push({ kind: "prompt", sessionId, at, text: synthetic ? "" : raw });
+      const done = taskDone(raw, sessionId, at);
+      if (done) out.push(done);
     }
+  } else if (rec.type === "queue-operation" && rec.operation === "enqueue" && typeof rec.content === "string" && !agentId) {
+    // the desktop app queues background-agent notifications here instead of as a user message
+    const done = taskDone(rec.content, sessionId, at);
+    if (done) out.push(done);
   } else if (rec.type === "assistant") {
     const uses = blocks(msg.content).filter((b) => b.type === "tool_use" && typeof b.name === "string");
     for (const u of uses) {

@@ -2,6 +2,7 @@ import { Container, Graphics, Rectangle, Sprite, Text, type Texture } from "pixi
 import type { District, Employee, Session, State } from "../shared/types.js";
 import type { Place } from "./scene.js";
 import { TILE, type buildCity } from "./city.js";
+import { flyPaper, handoffs } from "./handoff.js";
 import { findPath, type Pt } from "./path.js";
 import { randomRoadTile, wanderTarget } from "./roads.js";
 import * as K from "./tiles.js";
@@ -91,6 +92,7 @@ export class Actors {
   private lastStaff = new Map<string, { type: string; sessionId: string }>();
   private citizens: Actor[] = [];
   private clock = 0;
+  private seenStaff: Map<string, boolean> | null = null;
 
   constructor(
     private city: City,
@@ -314,6 +316,16 @@ export class Actors {
       }
       if (t) { t.text = `+${extra}`; t.visible = extra > 0; }
     }
+    // paper from the mayor to a new employee; the report flies back when the employee is done
+    const now = state.employees.filter((e) => byId.has(e.sessionId)).map((e) => ({ id: e.id, done: e.status === "done", boss: e.sessionId }));
+    const px = (a: Actor, dy: number): Pt => ({ x: a.tx * TILE + 8, y: a.ty * TILE + 14 - dy });
+    if (this.opts.motion) for (const h of handoffs(this.seenStaff, now)) {
+      const boss = this.mayors.get(now.find((e) => e.id === h.id)!.boss), worker = this.staff.get(h.id);
+      if (!boss || !worker) continue; // employee beyond the per-session cap has no figure
+      const [from, to] = h.kind === "assign" ? [px(boss, 14), px(worker, 8)] : [px(worker, 8), px(boss, 14)];
+      flyPaper(this.layer, from, to, h.kind);
+    }
+    this.seenStaff = new Map(now.map((e) => [e.id, e.done]));
     this.drop(this.staff, shown);
   }
 
