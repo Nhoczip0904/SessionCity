@@ -86,7 +86,7 @@ describe("renderLaunchDialog", () => {
 describe("dialog chrome", () => {
   it("Esc with a dialog open closes only the dialog, not the panel behind it", async () => {
     const root = document.createElement("div");
-    const p = new Panel(root, vi.fn().mockResolvedValue({ id: "s1", staff: [], steps: [], employees: [], tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, byModel: {} } }) as never);
+    const p = new Panel(root, vi.fn().mockResolvedValue({ id: "s1", staff: [], steps: [], chat: [], employees: [], tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, byModel: {} } }) as never);
     await p.open("session", "s1");
     showDialog(renderLaunchDialog([], async () => null));
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));

@@ -1,10 +1,11 @@
 import type {
-  Delta, Employee, EmployeeDetail, Event, Session, SessionDetail, State, TokenCounts, Tokens, ToolStep,
+  ChatLine, Delta, Employee, EmployeeDetail, Event, Session, SessionDetail, State, TokenCounts, Tokens, ToolStep,
 } from "../shared/types.js";
 import { summarize } from "./summary.js";
 
 const MAX = 4096;
 const STEPS = 100;
+const CHAT = 40, CHAT_TEXT = 600;
 const IDLE_MS = 10 * 60_000;
 const HIDE_MS = 24 * 60 * 60_000;
 const DONE_MS = 30_000;
@@ -34,6 +35,7 @@ export class Store {
   private mayorSteps = new Map<string, ToolStep[]>(); // sessionId -> steps, oldest first
   private skills = new Map<string, Set<string>>(); // sessionId -> Skill tool names used
   private lastPrompt = new Map<string, string>();
+  private chat = new Map<string, ChatLine[]>(); // sessionId -> prompts and replies, oldest first
   private extra = new Map<string, Extra>(); // agentId -> detail-only data
   private dirtyS = new Set<string>();
   private dirtyE = new Set<string>();
@@ -105,8 +107,14 @@ export class Store {
     this.activity(s, e.at);
     switch (e.kind) {
       case "prompt":
-        if (e.text) this.lastPrompt.set(s.id, cut(e.text));
+        if (e.text) {
+          this.lastPrompt.set(s.id, cut(e.text));
+          this.say(s.id, { at: e.at, role: "user", text: e.text });
+        }
         s.status = "working"; s.district = "townhall";
+        break;
+      case "reply":
+        this.say(s.id, { at: e.at, role: "claude", text: e.text });
         break;
       case "tool": {
         const sk = e.name === "Skill" ? (e.input as { skill?: unknown } | null)?.skill : undefined;
@@ -183,6 +191,13 @@ export class Store {
     }
   }
 
+  private say(id: string, l: ChatLine) {
+    const c = this.chat.get(id) ?? [];
+    this.chat.set(id, c);
+    c.push({ ...l, text: l.text.length > CHAT_TEXT ? l.text.slice(0, CHAT_TEXT) + "…" : l.text });
+    if (c.length > CHAT) c.shift();
+  }
+
   private extraOf(agentId: string): Extra {
     let x = this.extra.get(agentId);
     if (!x) this.extra.set(agentId, (x = { steps: [], models: [] }));
@@ -203,7 +218,7 @@ export class Store {
       if (age >= HIDE_MS) {
         for (const a of s.employees) this.dropEmployee(a, false);
         this.sessions.delete(id); this.lastEvent.delete(id); this.dirtyS.delete(id);
-        this.seen.delete(id); this.mayorSteps.delete(id); this.lastPrompt.delete(id);
+        this.seen.delete(id); this.mayorSteps.delete(id); this.lastPrompt.delete(id); this.chat.delete(id);
         for (const [k, p] of this.pending) if (p.sessionId === id) this.pending.delete(k);
         this.removed.push(id);
       } else if (age >= IDLE_MS && s.status !== "idle") {
@@ -253,7 +268,7 @@ export class Store {
     const s = this.sessions.get(id);
     if (!s) return undefined;
     const staff = s.employees.map((a) => this.employees.get(a)).filter((e): e is Employee => !!e);
-    const d: SessionDetail = { ...s, steps: [...(this.mayorSteps.get(id) ?? [])].reverse(), staff };
+    const d: SessionDetail = { ...s, steps: [...(this.mayorSteps.get(id) ?? [])].reverse(), staff, chat: [...(this.chat.get(id) ?? [])].reverse() };
     const p = this.lastPrompt.get(id);
     if (p !== undefined) d.lastPrompt = p;
     return structuredClone(d);

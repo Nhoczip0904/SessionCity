@@ -34,11 +34,13 @@ export interface Employee {
 }
 
 export interface ToolStep { at: string; name: string; summary: string; district: District | null }
-export interface SessionDetail extends Session { lastPrompt?: string; steps: ToolStep[]; staff: Employee[] }
+export interface ChatLine { at: string; role: "user" | "claude"; text: string }
+export interface SessionDetail extends Session { lastPrompt?: string; steps: ToolStep[]; staff: Employee[]; /** newest first */ chat: ChatLine[] }
 export interface EmployeeDetail extends Employee { report?: string; models: string[]; steps: ToolStep[] }
 
 export type Event =
   | { kind: "prompt"; sessionId: string; at: string; text: string }
+  | { kind: "reply"; sessionId: string; at: string; text: string }
   | { kind: "tool"; sessionId: string; agentId?: string; at: string; name: string; input: unknown; district: District | null }
   | { kind: "spawn"; sessionId: string; at: string; toolUseId: string; type: string; description: string; prompt: string }
   | { kind: "report"; sessionId: string; at: string; toolUseId: string; text: string }

@@ -310,6 +310,18 @@ describe("Store", () => {
       expect(d.steps[99].summary).toBe("#51");
     });
 
+    it("chat: your prompts and Claude's replies, newest first, capped at 40, long text cut", () => {
+      const s = mk();
+      s.apply(prompt("hi"));
+      s.apply(prompt(""));
+      s.apply({ kind: "reply", sessionId: "s1", at: AT, text: "hello" });
+      expect(s.detailSession("s1")!.chat).toEqual([{ at: AT, role: "claude", text: "hello" }, { at: AT, role: "user", text: "hi" }]);
+      for (let i = 0; i < 50; i++) s.apply({ kind: "reply", sessionId: "s1", at: AT, text: "y".repeat(700) });
+      const chat = s.detailSession("s1")!.chat;
+      expect(chat).toHaveLength(40);
+      expect(chat[0].text).toBe("y".repeat(600) + "…");
+    });
+
     it("empty prompt text keeps lastPrompt but still marks working", () => {
       const s = mk();
       s.apply(prompt("real"));
@@ -388,7 +400,7 @@ describe("Store", () => {
       s.apply({ kind: "report", sessionId: "s1", at: AT, toolUseId: "tu1", text: "r" });
       s.apply(usage({ agentId: "a1" }));
       const j = JSON.stringify([s.snapshot(), s.drainDelta()]);
-      for (const k of ["steps", "report", "models", "lastPrompt"]) expect(j).not.toContain(k);
+      for (const k of ["steps", "report", "models", "lastPrompt", "chat"]) expect(j).not.toContain(k);
     });
   });
   it("a background employee quiet for the idle window is done, even while the mayor keeps working", () => {

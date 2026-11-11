@@ -46,6 +46,12 @@
       #panel .staff-row, #panel .back { display: block; width: 100%; margin: 2px 0; padding: 4px 6px; text-align: left; font: inherit; color: #eee; background: #26262e; border: 1px solid #000; cursor: pointer; overflow-wrap: anywhere; }
       #panel .back { width: auto; margin-bottom: 8px; }
       #panel .step { font-size: 11px; padding: 1px 0; border-bottom: 1px solid #26262e; }
+      #panel .chat { display: flex; flex-direction: column; gap: 4px; color: #aaa; }
+      #panel .chat-line { max-width: 88%; padding: 4px 8px; border-radius: 8px; background: #26262e; color: #eee; }
+      #panel .chat-line.user { align-self: flex-end; background: #1f3a5a; }
+      #panel .chat-line .who { font-size: 10px; color: #9ad0ff; }
+      #panel .chat-line.claude .who { color: #e0a070; }
+      #panel .chat-line .said { font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
       #tooltip {
         position: fixed; z-index: 6; max-width: 280px; overflow-wrap: anywhere; padding: 8px 10px; pointer-events: none;
         background: rgba(20, 20, 26, 0.95); border: 2px solid #000;

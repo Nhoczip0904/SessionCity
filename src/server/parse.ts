@@ -72,6 +72,8 @@ export function parseLine(line: string, ctx: LineContext, rules: Rule[]): Event[
     const done = taskDone(rec.content, sessionId, at);
     if (done) out.push(done);
   } else if (rec.type === "assistant") {
+    const said = resultText(msg.content).trim();
+    if (said && !agentId) out.push({ kind: "reply", sessionId, at, text: said });
     const uses = blocks(msg.content).filter((b) => b.type === "tool_use" && typeof b.name === "string");
     for (const u of uses) {
       const name = u.name as string;

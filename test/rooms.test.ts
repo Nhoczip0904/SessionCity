@@ -5,7 +5,7 @@ import { deskSpots, fileRows, officeLayout, roomOccupants, tokenRows } from "../
 const z = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const sess = (o: Partial<Session>): Session => ({ id: "s", project: "p", cwd: "", lastActivity: "", status: "working", district: "lab", tokens: { ...z, byModel: {} }, employees: [], ...o });
 const emp = (o: Partial<Employee>): Employee => ({ id: "e", sessionId: "s", type: "t", description: "", prompt: "", toolUseId: "", status: "working", district: "lab", startedAt: "2026-01-01", tokens: { ...z, byModel: {} }, ...o });
-const detail = (o: Partial<SessionDetail>): SessionDetail => ({ ...sess({}), steps: [], staff: [], ...o });
+const detail = (o: Partial<SessionDetail>): SessionDetail => ({ ...sess({}), steps: [], staff: [], chat: [], ...o });
 
 describe("roomOccupants", () => {
   it("orders mayors then working staff, skips done and other districts, badges", () => {

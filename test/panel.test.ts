@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Panel, renderEmployee, renderSession } from "../src/client/panel.js";
-import type { Delta, Employee, EmployeeDetail, SessionDetail, Tokens } from "../src/shared/types.js";
+import type { ChatLine, Delta, Employee, EmployeeDetail, SessionDetail, Tokens } from "../src/shared/types.js";
 
 const tokens: Tokens = { input: 1200, output: 30, cacheRead: 5, cacheWrite: 7, byModel: { "m-1": { input: 1200, output: 30, cacheRead: 5, cacheWrite: 7 } } };
 const NOW = Date.parse("2026-01-01T00:10:00Z");
@@ -11,7 +11,7 @@ const emp = (id: string, status: Employee["status"]): Employee => ({
 });
 const session = (over: Partial<SessionDetail> = {}): SessionDetail => ({
   id: "s1", project: "proj", cwd: "/x", branch: "main", model: "m-1", lastActivity: "2026-01-01T00:08:00Z", status: "working",
-  district: "site", tokens, employees: [], lastPrompt: "hello", steps: [], staff: [], ...over,
+  district: "site", tokens, employees: [], lastPrompt: "hello", steps: [], staff: [], chat: [], ...over,
 });
 const employee = (over: Partial<EmployeeDetail> = {}): EmployeeDetail => ({ ...emp("e1", "working"), models: ["m-1"], steps: [], ...over });
 const step = (i: number) => ({ at: "2026-01-01T00:09:00Z", name: "Read", summary: `step-${i};`, district: "library" as const });
@@ -45,30 +45,36 @@ describe("renderSession", () => {
     (el.querySelector("[data-employee]") as HTMLElement).click();
     expect(pick).toHaveBeenCalledWith("work1");
   });
-  it("shows only the 20 newest steps (input newest-first); step row has overflow-wrap:anywhere", () => {
-    const steps = Array.from({ length: 30 }, (_, i) => step(29 - i)); // [0] = newest = step-29
-    const el = renderSession(session({ steps }), NOW, () => {});
-    const rows = el.querySelectorAll(".step");
-    expect(rows.length).toBe(20);
-    expect((rows[0] as HTMLElement).style.overflowWrap).toBe("anywhere");
-    expect(rows[0].textContent).toContain("step-29;");
-    expect(rows[19].textContent).toContain("step-10;");
-    expect(el.textContent).not.toContain("step-9;");
+  it("mini chat replaces the step list: oldest at the top, newest at the bottom, who said it on each line", () => {
+    const chat: ChatLine[] = [
+      { at: "2026-01-01T00:09:00Z", role: "claude", text: "done it" },
+      { at: "2026-01-01T00:08:00Z", role: "user", text: "do it" },
+    ];
+    const el = renderSession(session({ chat, steps: [step(1)] }), NOW, () => {});
+    expect(el.textContent).toContain("Trò chuyện");
+    expect(el.textContent).not.toContain("Hoạt động gần đây");
+    expect(el.querySelectorAll(".step")).toHaveLength(0);
+    const rows = [...el.querySelectorAll(".chat-line")];
+    expect(rows.map((r) => r.className)).toEqual(["chat-line user", "chat-line claude"]);
+    expect(rows[0].textContent).toContain("Bạn");
+    expect(rows[0].textContent).toContain("do it");
+    expect(rows[1].textContent).toContain("Claude");
+    expect(rows[1].textContent).toContain("done it");
+    expect(renderSession(session(), NOW, () => {}).querySelector(".chat")!.textContent).toBe("—");
   });
   it("truncated lastPrompt shows the rút gọn note", () => {
     const el = renderSession(session({ lastPrompt: "abc…" }), NOW, () => {});
     expect(el.querySelector("details")!.textContent).toContain("(đã rút gọn — xem đầy đủ trong transcript)");
     expect(renderSession(session({ lastPrompt: "abc" }), NOW, () => {}).textContent).not.toContain("rút gọn");
   });
-  it("step with empty or unparseable at shows — not Invalid", () => {
-    const steps = [{ ...step(1), at: "" }, { ...step(2), at: "garbage" }];
-    const el = renderSession(session({ steps }), NOW, () => {});
+  it("chat line with empty or unparseable at shows — not Invalid", () => {
+    const el = renderSession(session({ chat: [{ at: "", role: "user", text: "a" }, { at: "garbage", role: "claude", text: "b" }] }), NOW, () => {});
     expect(el.textContent).not.toContain("Invalid");
-    expect(el.querySelectorAll(".step")[0].textContent!.startsWith("— · ")).toBe(true);
+    expect(el.textContent).toContain("—");
   });
   it("<img onerror> in step summary, report and model name stays text", () => {
     const x = "<img src=x onerror=alert(1)>";
-    const s = renderSession(session({ steps: [{ ...step(1), summary: x }], tokens: { ...tokens, byModel: { [x]: tokens } } }), NOW, () => {});
+    const s = renderSession(session({ chat: [{ at: "", role: "claude", text: x }], tokens: { ...tokens, byModel: { [x]: tokens } } }), NOW, () => {});
     const e = renderEmployee(employee({ report: x, models: [x], steps: [{ ...step(1), summary: x }] }), NOW, () => {});
     for (const el of [s, e]) {
       expect(el.querySelector("img")).toBeNull();

@@ -107,11 +107,18 @@ describe("parseLine", () => {
 
   it("end_turn without tools → turnEnd; with tool_use → none", () => {
     const ev = parseLine(asst([{ type: "text", text: "done" }], { stop_reason: "end_turn" }), ctx, rules);
-    expect(ev).toEqual([{ kind: "turnEnd", sessionId: "s1", at: T }]);
+    expect(ev).toEqual([{ kind: "reply", sessionId: "s1", at: T, text: "done" }, { kind: "turnEnd", sessionId: "s1", at: T }]);
     const t = parseLine(asst([{ type: "tool_use", id: "t", name: "Read", input: {} }], { stop_reason: "end_turn" }), ctx, rules);
     expect(t.some((e) => e.kind === "turnEnd")).toBe(false);
     const tu = parseLine(asst([{ type: "text", text: "x" }], { stop_reason: "tool_use" }), ctx, rules);
-    expect(tu).toEqual([]);
+    expect(tu).toEqual([{ kind: "reply", sessionId: "s1", at: T, text: "x" }]);
+  });
+
+  it("assistant text → reply (main session only, blocks joined, blank skipped)", () => {
+    const two = asst([{ type: "text", text: "a" }, { type: "tool_use", id: "t", name: "Read", input: {} }, { type: "text", text: "b" }]);
+    expect(parseLine(two, ctx, rules).filter((e) => e.kind === "reply")).toEqual([{ kind: "reply", sessionId: "s1", at: T, text: "a\nb" }]);
+    expect(parseLine(asst([{ type: "text", text: "x" }]), { sessionId: "s1", agentId: "a1" }, rules)).toEqual([]);
+    expect(parseLine(asst([{ type: "text", text: "  " }, { type: "thinking", thinking: "t" }]), ctx, rules)).toEqual([]);
   });
 
   it("tool_result → report with tool_use_id and text (string or text blocks joined)", () => {
