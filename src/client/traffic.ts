@@ -1,12 +1,12 @@
 import { Container, Sprite } from "pixi.js";
-import { TILE, type buildCity } from "./city.js";
+import { ROAD_COLS, ROAD_ROWS, TILE, type buildCity } from "./city.js";
+import { carPos, centreLines, roadGraph, spawnCar, stepCar, type CarState, type RoadGraph } from "./roads.js";
 import { CARS, CARS_DOWN, CARS_UP, type Sheets } from "./tiles.js";
 
 type City = ReturnType<typeof buildCity>;
-const SPEED = 3 / 1000; // tiles per ms
-const COUNT = 4;
+const COUNT = 6;
 
-interface Car { root: Container; side: Container; up: Container; down: Container; d: number }
+interface Car { root: Container; side: Container; up: Container; down: Container }
 
 /** Tiles laid out `w` wide, pivoted on their centre. */
 function block(sheets: Sheets, tiles: number[], w: number): Container {
@@ -20,21 +20,15 @@ function block(sheets: Sheets, tiles: number[], w: number): Container {
   return c;
 }
 
-/** Decorative cars driving clockwise around the ring road (no data, no input). */
+/** Decorative cars wandering randomly over the road grid (no data, no input). */
 export class Traffic {
-  private cars: Car[] = [];
-  private loop: { x: number; y: number }[];
-  private len = 0;
+  private cars: { car: Car; state: CarState }[] = [];
+  private graph: RoadGraph;
 
-  constructor(city: City, layer: Container, sheets: Sheets | null) {
+  constructor(_city: City, layer: Container, sheets: Sheets | null, private rand: () => number = Math.random) {
     layer.eventMode = "none";
-    // centre lines of the 2-tile ring road (tile edges 3 and cols-3 / rows-3); a car is as wide as the road, like the parked ones
-    const lo = 3, right = city.cols - 3, bottom = city.rows - 3;
-    this.loop = [{ x: lo, y: lo }, { x: right, y: lo }, { x: right, y: bottom }, { x: lo, y: bottom }];
-    this.loop.forEach((p, i) => {
-      const q = this.loop[(i + 1) % 4];
-      this.len += Math.abs(q.x - p.x) + Math.abs(q.y - p.y);
-    });
+    // centre lines of the 2-tile roads; a car is as wide as the road, like the parked ones
+    this.graph = roadGraph(centreLines(ROAD_COLS), centreLines(ROAD_ROWS));
     if (!sheets || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     for (let i = 0; i < COUNT; i++) {
       const k = i % CARS.length;
@@ -43,31 +37,23 @@ export class Traffic {
         side: block(sheets, CARS[k], 3),
         up: block(sheets, CARS_UP[k], 2),
         down: block(sheets, CARS_DOWN[k], 2),
-        d: (i * this.len) / COUNT,
       };
       car.root.addChild(car.side, car.up, car.down);
       layer.addChild(car.root);
-      this.cars.push(car);
+      this.cars.push({ car, state: spawnCar(this.graph, this.rand) });
     }
     this.update(0);
   }
 
   update(dtMs: number): void {
-    for (const car of this.cars) {
-      car.d = (car.d + dtMs * SPEED) % this.len;
-      let d = car.d;
-      for (let i = 0; i < 4; i++) {
-        const p = this.loop[i], q = this.loop[(i + 1) % 4];
-        const dx = Math.sign(q.x - p.x), dy = Math.sign(q.y - p.y);
-        const seg = Math.abs(q.x - p.x) + Math.abs(q.y - p.y);
-        if (d > seg) { d -= seg; continue; }
-        car.root.position.set(Math.round((p.x + dx * d) * TILE), Math.round((p.y + dy * d) * TILE));
-        car.side.visible = dx !== 0;
-        car.side.scale.x = dx > 0 ? -1 : 1; // the side view faces left
-        car.up.visible = dy < 0;
-        car.down.visible = dy > 0;
-        break;
-      }
+    for (const { car, state } of this.cars) {
+      stepCar(this.graph, state, dtMs, this.rand);
+      const { x, y, dx, dy } = carPos(this.graph, state);
+      car.root.position.set(Math.round(x * TILE), Math.round(y * TILE));
+      car.side.visible = dx !== 0;
+      car.side.scale.x = dx > 0 ? -1 : 1; // the side view faces left
+      car.up.visible = dy < 0;
+      car.down.visible = dy > 0;
     }
   }
 }
