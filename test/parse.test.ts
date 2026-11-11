@@ -38,6 +38,23 @@ describe("parseLine", () => {
     expect(parseLine(k, ctx, rules)).toMatchObject([{ kind: "prompt", text: "<command-name>/clear</command-name>" }]);
   });
 
+  it("background agent: launch result is not a report, the later task-notification is", () => {
+    const launch = line({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu1", content: "Async agent launched successfully. agentId: a1" }] } });
+    expect(parseLine(launch, ctx, rules)).toEqual([]);
+    const note = "<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>tu1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"x\" finished</summary>\n</task-notification>";
+    expect(parseLine(line({ type: "user", message: { content: note } }), ctx, rules)).toEqual([
+      { kind: "prompt", sessionId: "s1", at: T, text: "" },
+      { kind: "report", sessionId: "s1", at: T, toolUseId: "tu1", text: "Agent \"x\" finished" },
+    ]);
+    // desktop app: the same notification queued as a queue-operation record
+    expect(parseLine(line({ type: "queue-operation", operation: "enqueue", content: note }), ctx, rules)).toEqual([
+      { kind: "report", sessionId: "s1", at: T, toolUseId: "tu1", text: "Agent \"x\" finished" },
+    ]);
+    expect(parseLine(line({ type: "queue-operation", operation: "dequeue", content: note }), ctx, rules)).toEqual([]);
+    const running = note.replace("completed", "running");
+    expect(parseLine(line({ type: "user", message: { content: running } }), ctx, rules)).toEqual([{ kind: "prompt", sessionId: "s1", at: T, text: "" }]);
+  });
+
   it("isMeta user and subagent user are not prompts", () => {
     const l = line({ type: "user", isMeta: true, message: { content: "x" } });
     expect(parseLine(l, ctx, rules)).toEqual([]);

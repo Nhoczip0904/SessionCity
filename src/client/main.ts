@@ -9,6 +9,7 @@ import { ROOM_COLS, ROOM_ROWS, DEFAULT_THEME, OFFICE_THEME, ROOM_THEMES, deskSpo
 import { drawRoom, type Seat } from "./roomDraw.js";
 import { Scene, type Place } from "./scene.js";
 import { renderFilesDialog, renderShelfDialog, renderTokenDialog } from "./shelfDialog.js";
+import { flyPaper, handoffs } from "./handoff.js";
 import { Panel, type Detail, type Kind } from "./panel.js";
 import { loadSheets } from "./tiles.js";
 import { Tooltip, plotAt, presentAt, renderDistrictCard } from "./tooltip.js";
@@ -61,7 +62,12 @@ async function main() {
   if (sheets) world.addChild(lightOverlay(W, H));
   world.addChild(layer);
   const roomLayer = new Container();
+  roomLayer.sortableChildren = true;
+  const papers = new Container(); // task papers in flight; outlive room rebuilds
+  papers.zIndex = 1;
+  roomLayer.addChild(papers);
   app.stage.addChild(world, roomLayer);
+  const motion = !matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const fitTo = (c: Container, w: number, h: number) => {
     const sw = app.screen.width, sh = app.screen.height - HUD_H;
@@ -169,8 +175,19 @@ async function main() {
     const notes = [error ? "Không tải được, đang thử lại" : "", lay?.extra ? `+${lay.extra}` : ""].filter(Boolean);
     return { seats, board: lay?.board ?? [s?.title ?? s?.project ?? "—"], note: notes.length ? notes.join(" · ") : null, theme: OFFICE_THEME };
   };
+  // staff of the office last drawn, to animate the mayor handing out tasks and getting reports back
+  let seen: { id: string; staff: Map<string, boolean> } | null = null;
   const draw = (place: Exclude<Place, { kind: "city" }>, detail: SessionDetail | null, error: boolean) => {
     const v = spec(place, detail, error);
+    if (place.kind === "office" && detail) {
+      const staff = v.seats.filter((x) => x.kind === "employee");
+      const boss = { x: 7.5 * TILE, y: 3 * TILE + 10 };
+      if (motion) for (const h of handoffs(seen?.id === place.sessionId ? seen.staff : null, staff)) {
+        const at = staff.find((x) => x.id === h.id)!.at, desk = { x: (at.x + 1) * TILE, y: at.y * TILE + 10 };
+        flyPaper(papers, h.kind === "assign" ? boss : desk, h.kind === "assign" ? desk : boss, h.kind);
+      }
+      seen = { id: place.sessionId, staff: new Map(staff.map((x) => [x.id, x.done])) };
+    }
     const seats: Seat[] = v.seats.map((x) => ({ at: x.at, big: x.big, fig: actors.portrait(x.kind, x.id), label: x.label, badge: x.badge, done: x.done, onPick: () => onPick(x.kind, x.id) }));
     return drawRoom(sheets, v.theme, seats, v.board, v.note, furniture);
   };
@@ -187,6 +204,8 @@ async function main() {
     fetchSession: (id) => fetchDetail("session", id) as Promise<SessionDetail | "gone">,
     onChange: (p) => {
       const inside = p.kind !== "city";
+      seen = null;
+      for (const c of [...papers.children]) c.destroy();
       world.visible = !inside;
       tip.hide();
       hud.setPlace(

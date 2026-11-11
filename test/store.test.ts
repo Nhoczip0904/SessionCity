@@ -391,6 +391,18 @@ describe("Store", () => {
       for (const k of ["steps", "report", "models", "lastPrompt"]) expect(j).not.toContain(k);
     });
   });
+  it("a background employee quiet for the idle window is done, even while the mayor keeps working", () => {
+    const s = mk();
+    const at = () => new Date(t).toISOString();
+    s.apply({ ...spawn(), at: at() }); s.apply({ ...agentMeta(), at: at() });
+    s.apply(tool("library", { agentId: "a1", at: at() }));
+    t += 9 * MIN; s.apply(tool("site", { at: at() })); s.tick();
+    expect(s.detailEmployee("a1")!.status).toBe("working");
+    t += 2 * MIN; s.apply(tool("site", { at: at() })); s.tick();
+    expect(s.detailEmployee("a1")!.status).toBe("done");
+    expect(sess(s).status).toBe("working");
+  });
+
   it("records skill names used by the session", () => {
     const s = mk();
     const sk = (skill: string, extra: object = {}) => tool(null, { name: "Skill", input: { skill }, ...extra });
