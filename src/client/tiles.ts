@@ -98,18 +98,22 @@ export const CARS_UP = [[697, 698, 734, 735], [845, 846, 882, 883], [993, 994, 1
 export const CARS_DOWN = [[699, 700, 736, 737], [847, 848, 884, 885], [995, 996, 1032, 1033]]; // seen from the front
 
 // --- roguelike-indoors tile indices (row * 27 + col; furniture only, no floor/wall tiles) ---
-export const IN_CHAIR = 55, IN_DESK = 86, IN_BIG_DESK = [112, 113, 114];
-export const IN_PLANT = 16, IN_CANDLE = 19, IN_PAINTING = 343, IN_ARMCHAIR = 257;
+export const IN_CHAIR = 54; // seen from the front, seat towards the viewer
+export const IN_DESK = [112, 114], IN_BIG_DESK = [112, 113, 114], IN_MONITOR = 129;
+export const IN_PLANT = 16, IN_PLANT2 = 17, IN_CANDLE = 19, IN_CLOCK = 238, IN_STOOL = 97;
+export const IN_PAINTING = 343, IN_PAINTING2 = 370, IN_WIDE_PAINTING = [394, 395, 396], IN_TAPESTRY = [421, 422, 423];
+export const IN_BANNER = [424, 451], IN_BANNER2 = [425, 452]; // [top, bottom]
+export const IN_ARMCHAIR = [257, 284]; // [top, bottom]
 export const IN_BOOKSHELF = [478, 479, 480]; // one row, left→right
-export const IN_SERVER = [241, 268]; // [top, bottom]
-export const IN_LAB = [329, 330]; // counters with bottles
+export const IN_SERVER = [241, 268], IN_SPEAKER = [446, 473], IN_PIPE = 420; // [top, bottom]
+export const IN_LAB = [329, 330, 331], IN_LAB2 = [356, 357, 358], IN_SINK = 332; // counters
 export const IN_MACHINE = [392, 419]; // [top, bottom]
-export const IN_MAP = [344, 345]; // framed map, 2 wide
-export const IN_WINDOW = [400, 427]; // [top, bottom]
-export const IN_BED = [12, 39]; // [top, bottom]
-export const IN_LADDER = [237, 264]; // [top, bottom]
-export const IN_WHITEBOARD = [371, 372];
-export const IN_RUG = [232, 233, 234, 259, 260, 261]; // 3×2
+export const IN_MAP = [344, 345], IN_CHART = [371, 372]; // framed, 2 wide
+export const IN_PIANO = [239, 240, 266, 267]; // 2×2
+export const IN_LADDER = [264, 291]; // [top, bottom]
+export const IN_TABLE = [0, 1, 2, 27, 28, 29], IN_CLOTH_TABLE = [232, 233, 234, 259, 260, 261]; // 3×2
+export const IN_OVAL_TABLE = [3, 4, 30, 31]; // 2×2
+export const IN_COUNTER = [293, 294, 295], IN_BENCH = [166, 167, 168, 169];
 export const IN_SAFE = 266, IN_CABINET = 328, IN_PHONE = 129;
 
 // --- roguelikeChar_transparent.png frames [col, row] ---

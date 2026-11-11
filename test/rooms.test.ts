@@ -30,8 +30,8 @@ describe("deskSpots", () => {
     expect(new Set(s.map((p) => `${p.x},${p.y}`)).size).toBe(12);
     for (const p of s) {
       expect(p.x).toBeGreaterThanOrEqual(0); expect(p.x).toBeLessThan(16);
-      expect(p.y).toBeGreaterThanOrEqual(0); expect(p.y).toBeLessThan(11);
-      expect(p.y === 10 && (p.x === 7 || p.x === 8)).toBe(false);
+      expect(p.x + 1).toBeLessThan(16); expect(p.y).toBeGreaterThanOrEqual(3); expect(p.y + 1).toBeLessThan(11); // chair row y, desk row y + 1, above the door row
+      expect(p.x <= 8 && p.x + 1 >= 7 && p.y + 1 >= 10).toBe(false);
     }
     expect(deskSpots(3)).toHaveLength(3);
   });
