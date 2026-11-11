@@ -8,6 +8,8 @@ export interface SceneDeps {
   mount: Container;
   draw(place: Inside, detail: SessionDetail | null, error: boolean): Container;
   fetchSession(id: string): Promise<SessionDetail | "gone">;
+  /** What `draw` would show; an unchanged key skips the redraw so taps and hover survive busy deltas. */
+  key?(place: Inside, detail: SessionDetail | null, error: boolean): string;
   onChange(place: Place): void;
 }
 
@@ -19,6 +21,7 @@ export class Scene {
   private room: Container | null = null;
   private detail: SessionDetail | null = null;
   private error = false;
+  private shownKey: string | null = null;
   private seq = 0;
   private lastFetch = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -41,6 +44,7 @@ export class Scene {
     this.place = p;
     this.detail = null;
     this.error = false;
+    this.shownKey = null;
     this.show();
     this.deps.onChange(p);
     if (p.kind === "office") void this.refresh(p.sessionId);
@@ -54,6 +58,7 @@ export class Scene {
     this.error = false;
     this.room?.destroy({ children: true });
     this.room = null;
+    this.shownKey = null;
     this.deps.onChange(this.place);
   }
 
@@ -72,6 +77,9 @@ export class Scene {
 
   private show() {
     if (this.place.kind === "city") return;
+    const key = this.deps.key?.(this.place, this.detail, this.error) ?? null;
+    if (key !== null && key === this.shownKey && this.room) return;
+    this.shownKey = key;
     const next = this.deps.draw(this.place, this.detail, this.error);
     this.room?.destroy({ children: true });
     this.room = next;
