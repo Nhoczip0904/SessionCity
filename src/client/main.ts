@@ -136,7 +136,9 @@ async function main() {
     return (await res.json()) as T;
   };
 
-  const furniture = (f: Furniture, d: SessionDetail | null) => {
+  let lastDetail: SessionDetail | null = null; // updated on every show, even when the redraw is skipped
+  const furniture = (f: Furniture) => {
+    const d = lastDetail;
     if (!d) return;
     if (f === "safe") showDialog(renderTokenDialog(tokenRows(d)));
     else if (f === "cabinet") showDialog(renderFilesDialog(fileRows(d), (id) => void panel.open("employee", id)));
@@ -170,12 +172,13 @@ async function main() {
   const draw = (place: Exclude<Place, { kind: "city" }>, detail: SessionDetail | null, error: boolean) => {
     const v = spec(place, detail, error);
     const seats: Seat[] = v.seats.map((x) => ({ at: x.at, big: x.big, fig: actors.portrait(x.kind, x.id), label: x.label, badge: x.badge, done: x.done, onPick: () => onPick(x.kind, x.id) }));
-    return drawRoom(sheets, v.theme, seats, v.board, v.note, (f) => furniture(f, detail));
+    return drawRoom(sheets, v.theme, seats, v.board, v.note, furniture);
   };
-  // furniture dialogs read tokens/cwd/district from the detail captured at draw time, so they belong in the key
+  // only what the room visibly shows: anything else would rebuild it mid-tap
   const key = (place: Exclude<Place, { kind: "city" }>, detail: SessionDetail | null, error: boolean) => {
+    lastDetail = detail;
     const { theme: _t, ...v } = spec(place, detail, error);
-    return JSON.stringify([place, v, detail && [detail.tokens, detail.cwd, detail.district]]);
+    return JSON.stringify([place, v]);
   };
   const scene = new Scene({
     mount: roomLayer,
