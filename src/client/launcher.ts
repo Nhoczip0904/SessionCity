@@ -5,7 +5,7 @@ const MODELS: [string, string][] = [["Mặc định", ""], ["Opus", "opus"], ["S
 const SUBS: [string, string][] = [["Không đặt", ""], ["Haiku", "haiku"], ["Sonnet", "sonnet"], ["Opus", "opus"]];
 const STATE_TEXT: Record<ExploreState, string> = { off: "Đang tắt", on: "Đang bật", user: "" };
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, cls?: string): HTMLElementTagNameMap[K] {
+export function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, cls?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (text !== undefined) e.textContent = text;
   if (cls) e.className = cls;
@@ -13,7 +13,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, cls?: 
 }
 
 /** Backdrop + box + ✕. Closing = removing the root. */
-function frame(title: string, ...body: HTMLElement[]): HTMLElement {
+export function frame(title: string, ...body: HTMLElement[]): HTMLElement {
   const root = el("div", undefined, "dialog");
   const box = el("div", undefined, "box");
   const x = el("button", "✕", "close");
@@ -60,8 +60,10 @@ export function showDialog(d: HTMLElement) {
   d.querySelector<HTMLElement>("select, input, textarea")?.focus();
 }
 
-export function renderLaunchDialog(folders: string[], onSubmit: (opts: LaunchOpts) => Promise<string | null>): HTMLElement {
-  const folder = select("folder", folders.map((f) => [f, f]));
+export function renderLaunchDialog(folders: string[], onSubmit: (opts: LaunchOpts) => Promise<string | null>, preset?: string): HTMLElement {
+  const list = preset && !folders.includes(preset) ? [preset, ...folders] : folders;
+  const folder = select("folder", list.map((f) => [f, f]));
+  if (preset) folder.value = preset;
   const path = el("input", undefined, "path");
   path.type = "text";
   path.placeholder = "hoặc nhập đường dẫn thư mục";
