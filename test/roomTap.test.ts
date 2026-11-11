@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { CanvasTextMetrics, Container, EventBoundary, Texture, FederatedPointerEvent } from "pixi.js";
 import "pixi.js/events";
-import { drawRoom } from "../src/client/roomDraw.js";
+import { drawRoom, fitBoard } from "../src/client/roomDraw.js";
 import { OFFICE_THEME } from "../src/client/rooms.js";
 
 function tap(boundary: EventBoundary, x: number, y: number) {
@@ -34,5 +34,12 @@ describe("room taps without a preceding hover (Pixi hit testing)", () => {
     }
     tap(b, 8 * 16 + 8, 3 * 16 + 8);
     expect(onPick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("fitBoard", () => {
+  it("keeps 3 lines and cuts long ones with an ellipsis", () => {
+    const out = fitBoard(["a", "b".repeat(200), "c", "d"], 10);
+    expect(out).toEqual(["a", "b".repeat(9) + "…", "c"]);
   });
 });
