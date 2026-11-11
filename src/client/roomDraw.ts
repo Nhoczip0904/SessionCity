@@ -182,13 +182,31 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
   leds(root, ledSpots);
   if (theme.decor) decorOver(theme.decor, anim);
 
-  /** Chair, desk and screen; the person (if any) sits between chair and desk. */
+  /** Chair, desk and screen; the person (if any) sits between chair and desk. In a hall only the big desk has one. */
   const desk = theme.desk ?? { tiles: K.IN_DESK, monitor: true };
+  const hall = theme.layout === "hall";
+  const span = (big: boolean) => (big ? { left: -1, w: 3 } : hall ? { left: 0, w: 1 } : { left: 0, w: 2 });
   const station = (x: number, y: number, big: boolean, fig: Container | null, on: boolean): Container => {
-    const left = big ? x - 1 : x, w = big ? 3 : 2;
+    const { w } = span(big), left = x + span(big).left;
     const cx = (left + w / 2) * T;
     const c = new Container();
+    if (hall && !big) {
+      blob(cx, (y + 1) * T - 1, T * 0.45);
+      c.addChild(sprite(K.IN_CHAIR, cx - T / 2, y * T + 2, 0x555555));
+      if (fig) {
+        fig.position.set(Math.round(cx), (y + 1) * T - 1);
+        c.addChild(fig);
+      }
+      return c;
+    }
     blob(cx, (y + 2) * T - 1, w * T * 0.45);
+    if (!big && desk.monitor) {
+      // cubicle: low back panel and side screens, so the pods read as an office
+      const pg = new Graphics();
+      pg.rect(left * T, y * T - 3, w * T, 3).fill(0x7d8b99).rect(left * T, y * T - 3, w * T, 1).fill(0xa9b6c2);
+      for (const sx of [left * T - 1, (left + w) * T - 1]) pg.rect(sx, y * T - 3, 2, 2 * T + 1).fill(0x7d8b99).rect(sx, y * T - 3, 1, 2 * T + 1).fill(0xa9b6c2);
+      c.addChild(pg);
+    }
     c.addChild(sprite(K.IN_CHAIR, cx - T / 2, y * T + 2, 0x555555));
     if (fig) {
       fig.position.set(Math.round(cx), (y + 1) * T + 5); // legs hidden behind the desk
@@ -205,11 +223,11 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
 
   // every workstation is there, taken or not
   const taken = new Set(seats.map((s) => `${s.at.x},${s.at.y}`));
-  for (const p of deskSpots(MAX_DESKS)) if (!taken.has(`${p.x},${p.y}`)) root.addChild(station(p.x, p.y, false, null, false));
+  for (const p of deskSpots(MAX_DESKS, theme.layout)) if (!taken.has(`${p.x},${p.y}`)) root.addChild(station(p.x, p.y, !!p.big, null, false));
 
   for (const s of seats) {
     const { x, y } = s.at;
-    const left = s.big ? x - 1 : x, w = s.big ? 3 : 2;
+    const { w } = span(!!s.big), left = x + span(!!s.big).left;
     const cx = (left + w / 2) * T;
     const seat = station(x, y, !!s.big, s.fig && !s.done ? s.fig : null, !s.done);
     const name = s.label.length > 14 ? s.label.slice(0, 13) + "…" : s.label; // same cut as the street labels; neighbours sit 4 tiles apart

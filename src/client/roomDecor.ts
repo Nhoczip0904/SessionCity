@@ -151,9 +151,7 @@ export function decorUnder(kind: Decor, anim: Anim) {
         g.rect(x0, 2 * T, w, y1 - 2 * T).fill(0x7a4a26);
         for (let y = 2 * T + 6; y < y1; y += 6) g.rect(x0, y, w, 1).fill(0x5e381c);
         g.rect(x0, y1, w, 3).fill(0x4a2c14).rect(x0, y1 + 3, w, 2).fill({ color: 0x000000, alpha: 0.25 });
-        g.circle(8 * T, 2.9 * T, 22).fill({ color: 0xfff0b0, alpha: 0.12 + 0.03 * Math.sin(t / 700) });
-        g.rect(8 * T - 5, 2.4 * T, 10, 12).fill(0x5a3418).rect(8 * T - 6, 2.4 * T, 12, 2).fill(0x8a5a30); // lectern
-        g.rect(8 * T - 0.5, 2.1 * T, 1, 5).fill(0x222222).circle(8 * T, 2.1 * T, 1.5).fill(0x444444); // microphone
+        g.circle(8 * T, 2.9 * T, 22).fill({ color: 0xfff0b0, alpha: 0.12 + 0.03 * Math.sin(t / 700) }); // spotlight on the big desk
       });
   }
 }

@@ -12,6 +12,8 @@ export type Furniture = "safe" | "cabinet" | "phone" | "map" | "shelf";
 export interface Prop { tiles: number[]; w: number; x: number; y: number; name?: string; action?: Furniture; leds?: boolean; /** tiles from the city sheet */ city?: boolean }
 export type FloorKind = "wood" | "tile" | "concrete";
 /** Procedural, partly animated set piece that makes a department recognisable. */
+export type Layout = "office" | "hall";
+export type Spot = Pt & { big?: boolean };
 export type Decor = "shelves" | "pinboard" | "worksite" | "racks" | "flasks" | "diff" | "conveyor" | "carousel" | "radar" | "fireplace" | "stage";
 export interface RoomTheme {
   floor: number; wall: number; kind: FloorKind;
@@ -21,6 +23,7 @@ export interface RoomTheme {
   decor?: Decor;
   /** colour light over the whole room: [colour, alpha] */ tint?: [number, number];
   /** workstation look: 2 desk tiles (left, right), whether it carries a screen */ desk?: { tiles: number[]; monitor: boolean };
+  /** "hall": one big desk, everyone else waits on chairs */ layout?: Layout;
   props: Prop[];
 }
 
@@ -76,9 +79,8 @@ export const ROOM_THEMES: Partial<Record<District, RoomTheme>> = {
     desk: { tiles: [K.IN_TABLE[0], K.IN_TABLE[2]], monitor: false }, props: [
     block(K.IN_PIANO, 2, 3.5, 2), tall(K.IN_ARMCHAIR, 12), tall(K.IN_ARMCHAIR, 13), one(K.IN_PLANT, 15),
     block(K.IN_OVAL_TABLE, 2, 7, 3), ...corners] },
-  // assembly hall: stage with lectern, banners, red carpet, benches as desks
-  townhall: { floor: 0x9c6a3a, wall: 0xf0e2c0, kind: "wood", windows: [], decor: "stage", runner: 0x8e2b2b,
-    desk: { tiles: [K.IN_BENCH[0], K.IN_BENCH[3]], monitor: false }, props: [
+  // assembly hall: the one big desk on the stage, banners, red carpet, rows of waiting chairs
+  townhall: { floor: 0x9c6a3a, wall: 0xf0e2c0, kind: "wood", windows: [], decor: "stage", runner: 0x8e2b2b, layout: "hall", props: [
     tall(K.IN_BANNER, 1, 0), tall(K.IN_BANNER2, 14, 0), one(K.IN_CANDLE, 0), one(K.IN_CANDLE, 15), ...corners] },
 };
 export const DEFAULT_THEME: RoomTheme = { floor: 0x8f6a48, wall: 0xd8ccb8, kind: "wood", windows: [], props: [...corners] };
@@ -116,9 +118,13 @@ export function roomOccupants(d: District, sessions: Session[], employees: Emplo
   return cap([...mayors, ...staff]);
 }
 
-export function deskSpots(n: number): Pt[] {
-  const out: Pt[] = [];
-  for (const y of [5, 7, 9]) for (const x of [1, 5, 9, 13]) out.push({ x, y }); // chair tile; 2-wide desk at x..x+1, row y+1
+export function deskSpots(n: number, layout: Layout = "office"): Spot[] {
+  const out: Spot[] = [];
+  if (layout === "hall") {
+    out.push({ x: 7, y: 3, big: true }); // the one desk, 3 wide on the stage
+    for (const y of [5, 7, 9]) for (const x of [2, 5, 10, 13]) if (out.length < MAX_DESKS) out.push({ x, y }); // a chair, no desk
+  } // two pods of side-by-side desks, aisle to the door in between; chair tile y, 2-wide desk at x..x+1, row y+1
+  else for (const y of [5, 7, 9]) for (const x of [2, 4, 10, 12]) out.push({ x, y });
   return out.slice(0, Math.min(n, MAX_DESKS));
 }
 
