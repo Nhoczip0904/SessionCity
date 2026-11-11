@@ -55,8 +55,11 @@ type Rand = () => number;
 const same = (a: Pt, b: Pt) => a.x === b.x && a.y === b.y;
 
 /** Where an idle actor settles: its door, or a random walkable tile within 3 of it when wandering. */
-export const restTarget = (home: Pt, wander: boolean, walkable: boolean[][], rand: Rand): Pt =>
-  wander ? wanderTarget(walkable, home, 3, rand) : home;
+export const restTarget = (home: Pt, wander: boolean, walkable: boolean[][], rand: Rand, taken: (p: Pt) => boolean = () => false): Pt =>
+  wander ? wanderTarget(walkable, home, 3, rand, taken) : home;
+
+/** Sideways offsets (px) people keep while walking, so two on the same path walk side by side. */
+const LANES = [-4, 4, -2, 2, 0];
 
 const outfitFor = (type: string): Outfit =>
   type === "Explore" ? K.OUTFIT_EXPLORE
@@ -78,6 +81,7 @@ interface Actor {
   wander: boolean;
   wait: number; // ms until the next wander step
   citizen?: boolean;
+  lane: number; // px to the right of the walking direction
 }
 
 export class Actors {
@@ -93,6 +97,7 @@ export class Actors {
   private citizens: Actor[] = [];
   private clock = 0;
   private seenStaff: Map<string, boolean> | null = null;
+  private made = 0;
 
   constructor(
     private city: City,
@@ -186,7 +191,7 @@ export class Actors {
       c.on("pointerout", () => (label.visible = false));
     }
     this.layer.addChild(c);
-    return { c, fig: c, look: "", label, tx: at.x, ty: at.y, path: [], wander: false, wait: 0 };
+    return { c, fig: c, look: "", label, tx: at.x, ty: at.y, path: [], wander: false, wait: 0, lane: LANES[this.made++ % LANES.length] };
   }
 
   /** (Re)builds the figure when its look changes, e.g. an employee's type gets refined. */
@@ -338,7 +343,15 @@ export class Actors {
     }
     a.wait -= dtMs;
     if (a.wait > 0) return;
-    const to = a.citizen ? randomRoadTile(this.city.walkable, this.opts.rand) : restTarget(a.home!, true, this.city.walkable, this.opts.rand);
+    // never settle on a tile someone else stands on or is heading to
+    const busy = new Set<string>();
+    for (const o of [...this.mayors.values(), ...this.staff.values(), ...this.citizens]) {
+      if (o === a) continue;
+      const end = o.path[o.path.length - 1] ?? { x: Math.round(o.tx), y: Math.round(o.ty) };
+      busy.add(`${end.x},${end.y}`);
+    }
+    const taken = (p: Pt) => busy.has(`${p.x},${p.y}`);
+    const to = a.citizen ? randomRoadTile(this.city.walkable, this.opts.rand, taken) : restTarget(a.home!, true, this.city.walkable, this.opts.rand, taken);
     this.walk(a, to);
     a.wait = 1000 + 3000 * this.opts.rand();
   }
@@ -347,17 +360,20 @@ export class Actors {
     this.clock += dtMs;
     const stacks = new Map<number, number>(); // tile key -> actors already standing there
     for (const a of [...this.mayors.values(), ...this.staff.values(), ...this.citizens]) {
-      let step = dtMs * SPEED;
+      let step = dtMs * SPEED, hx = 0, hy = 0;
       while (step > 0 && a.path.length) {
         const n = a.path[0], dx = n.x - a.tx, dy = n.y - a.ty, d = Math.abs(dx) + Math.abs(dy);
         if (dx) a.fig.scale.x = dx < 0 ? -1 : 1;
+        if (d) { hx = Math.sign(dx); hy = Math.sign(dy); }
         if (d <= step) { a.tx = n.x; a.ty = n.y; a.path.shift(); step -= d; }
         else { a.tx += (dx / d) * step; a.ty += (dy / d) * step; step = 0; }
       }
       if (!a.path.length) this.rest(a, dtMs);
       let ox = 0, oy = 0, bob = 0;
-      if (a.path.length) bob = Math.floor(this.clock / 125) % 2;
-      else if (!a.citizen) {
+      if (a.path.length) {
+        bob = Math.floor(this.clock / 125) % 2;
+        ox = -hy * a.lane; oy = hx * a.lane; // keep to own side of the path
+      } else {
         // spread actors sharing a tile: rows of 3, stepping upward
         const k = a.ty * 1000 + a.tx, i = stacks.get(k) ?? 0;
         stacks.set(k, i + 1);

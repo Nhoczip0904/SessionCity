@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carPos, centreLines, nextNode, roadGraph, spawnCar, stepCar, wanderTarget } from "../src/client/roads.js";
+import { carPos, centreLines, nextNode, roadGraph, spawnCar, stepCar, gapAhead, inLane, wanderTarget } from "../src/client/roads.js";
 
 function mulberry32(a: number) {
   return () => {
@@ -65,5 +65,26 @@ describe("roads", () => {
     }
     const none = w.map((r) => r.map(() => false));
     expect(wanderTarget(none, door, 3, rand)).toEqual(door);
+  });
+});
+
+describe("lanes and spacing", () => {
+  it("cars keep to the right of the centre line (screen y down)", () => {
+    expect(inLane({ x: 3, y: 3, dx: 1, dy: 0 })).toMatchObject({ x: 3, y: 3.5 }); // east → lower lane
+    expect(inLane({ x: 3, y: 3, dx: -1, dy: 0 })).toMatchObject({ x: 3, y: 2.5 }); // west → upper lane
+    expect(inLane({ x: 3, y: 3, dx: 0, dy: -1 })).toMatchObject({ x: 3.5, y: 3 }); // north → right lane
+  });
+  it("gapAhead sees only the car in front in the same lane", () => {
+    const me = { x: 0, y: 0.5, dx: 1, dy: 0 };
+    expect(gapAhead(me, [{ x: 1.5, y: 0.5 }])).toBeCloseTo(1.5);
+    expect(gapAhead(me, [{ x: -1, y: 0.5 }])).toBe(Infinity); // behind
+    expect(gapAhead(me, [{ x: 1, y: -0.5 }])).toBe(Infinity); // oncoming lane
+    expect(gapAhead(me, [{ x: 3, y: 0.5 }, { x: 2, y: 0.6 }])).toBeCloseTo(2);
+  });
+  it("wanderTarget skips taken tiles and falls back to the door", () => {
+    const w = [[true, true, true]];
+    const rand = () => 0;
+    expect(wanderTarget(w, { x: 1, y: 0 }, 1, rand, (p) => p.x === 0)).toEqual({ x: 1, y: 0 });
+    expect(wanderTarget(w, { x: 1, y: 0 }, 1, rand, () => true)).toEqual({ x: 1, y: 0 });
   });
 });
