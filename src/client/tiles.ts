@@ -2,13 +2,17 @@
 import { Assets, Rectangle, Texture } from "pixi.js";
 import cityUrl from "../../assets/kenney/roguelike-modern-city/tilemap_packed.png?url";
 import charUrl from "../../assets/kenney/roguelike-characters/roguelikeChar_transparent.png?url";
+import indoorUrl from "../../assets/kenney/roguelike-indoors/roguelikeIndoor_transparent.png?url";
 
 export interface Sheets {
   city(index: number): Texture;
   char(col: number, row: number): Texture;
+  /** furniture sheet, index = row * 27 + col; absent if it failed to load */
+  indoor?: (index: number) => Texture;
 }
 
 const CITY_COLS = 37;
+const INDOOR_COLS = 27;
 
 export async function loadSheets(load: (url: string) => Promise<Texture> = (u) => Assets.load<Texture>(u)): Promise<Sheets | null> {
   let city: Texture, char: Texture;
@@ -24,7 +28,15 @@ export async function loadSheets(load: (url: string) => Promise<Texture> = (u) =
     if (!t) cache.set(key, (t = new Texture({ source: sheet.source, frame: new Rectangle(x, y, 16, 16) })));
     return t;
   };
+  let indoor: Texture | undefined;
+  try {
+    indoor = await load(indoorUrl);
+  } catch {
+    // optional: interiors just stay unavailable
+  }
+  const ind = indoor;
   return {
+    indoor: ind && ((i) => cut(ind, (i % INDOOR_COLS) * 17, Math.floor(i / INDOOR_COLS) * 17)), // 1 px spacing
     city: (i) => cut(city, (i % CITY_COLS) * 16, Math.floor(i / CITY_COLS) * 16),
     char: (c, r) => cut(char, c * 17, r * 17), // 1 px spacing
   };
@@ -85,6 +97,21 @@ export const SHUTTER = [880, 917];
 export const CARS_UP = [[697, 698, 734, 735], [845, 846, 882, 883], [993, 994, 1030, 1031]]; // seen from behind
 export const CARS_DOWN = [[699, 700, 736, 737], [847, 848, 884, 885], [995, 996, 1032, 1033]]; // seen from the front
 
+// --- roguelike-indoors tile indices (row * 27 + col; furniture only, no floor/wall tiles) ---
+export const IN_CHAIR = 55, IN_DESK = 86, IN_BIG_DESK = [112, 113, 114];
+export const IN_PLANT = 16, IN_CANDLE = 19, IN_PAINTING = 343, IN_ARMCHAIR = 257;
+export const IN_BOOKSHELF = [478, 479, 480]; // one row, left→right
+export const IN_SERVER = [241, 268]; // [top, bottom]
+export const IN_LAB = [329, 330]; // counters with bottles
+export const IN_MACHINE = [392, 419]; // [top, bottom]
+export const IN_MAP = [344, 345]; // framed map, 2 wide
+export const IN_WINDOW = [400, 427]; // [top, bottom]
+export const IN_BED = [12, 39]; // [top, bottom]
+export const IN_LADDER = [237, 264]; // [top, bottom]
+export const IN_WHITEBOARD = [371, 372];
+export const IN_RUG = [232, 233, 234, 259, 260, 261]; // 3×2
+export const IN_SAFE = 266, IN_CABINET = 328, IN_PHONE = 129;
+
 // --- roguelikeChar_transparent.png frames [col, row] ---
 export type Frame = readonly [number, number];
 export const CHAR_BODY: Frame = [0, 0];
@@ -106,3 +133,4 @@ export const OUTFIT_GENERAL: Outfit = { shirt: TSHIRT, own: true, hair: HAIR };
 export const OUTFIT_REVIEW: Outfit = { shirt: [12, 6], own: false, hair: HAIR }; // gray suit
 export const OUTFIT_TEST: Outfit = { shirt: [12, 4], own: false, hair: HAIR }; // white coat
 export const OUTFIT_OTHER: Outfit = { shirt: [10, 5], own: false, hair: HAIR }; // gray t-shirt
+export const OUTFIT_CITIZEN: Outfit = { shirt: [7, 5], own: false, hair: HAIR }; // green shirt
