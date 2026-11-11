@@ -64,16 +64,11 @@ export function drawTiles(s: Sheets, m: MapLayout): Container {
     return m.roadCols.includes(x + 1) ? K.ROAD_DASH_V : K.ROAD;
   }
 
-  // parked cars on the outer verges (rows 0–1 and 30–31)
-  for (const [i, cx] of [4, 13, 22, 34, 41].entries()) parkCar(put, K.CARS[i % K.CARS.length], cx, 0);
-  for (const [i, cx] of [7, 19, 27, 38].entries()) parkCar(put, K.CARS[(i + 1) % K.CARS.length], cx, 30);
-  const parked = (x: number, y: number) => (y <= 1 || y >= 30) && x >= 4 && x <= 43;
-
   // filler on free tiles: trees and bushes on grass, lamps and benches on the sidewalk
   for (let y = 0; y < rows; y++)
     for (let x = 0; x < cols; x++) {
       const k = y * cols + x, h = hash(x, y);
-      if (isRoad(x, y) || builtAt(x, y) || parked(x, y)) continue;
+      if (isRoad(x, y) || builtAt(x, y)) continue;
       if (sidewalk.has(k)) {
         if (h % 11 === 0) { put(K.LAMP_TOP, x, y - 1); put(K.LAMP_BOTTOM, x, y); }
         else if (h % 17 === 1) put(K.BENCH, x, y);
