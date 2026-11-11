@@ -12,7 +12,7 @@ export type Furniture = "safe" | "cabinet" | "phone" | "map" | "shelf";
 export interface Prop { tiles: number[]; w: number; x: number; y: number; name?: string; action?: Furniture; leds?: boolean; /** tiles from the city sheet */ city?: boolean }
 export type FloorKind = "wood" | "tile" | "concrete";
 /** Procedural, partly animated set piece that makes a department recognisable. */
-export type Layout = "office" | "hall";
+export type Layout = "office" | "hall" | "lounge";
 export type Spot = Pt & { big?: boolean; /** sits below its desk, facing up */ back?: boolean };
 export type Decor = "shelves" | "pinboard" | "worksite" | "racks" | "flasks" | "diff" | "conveyor" | "carousel" | "radar" | "fireplace" | "stage";
 export interface RoomTheme {
@@ -23,7 +23,7 @@ export interface RoomTheme {
   decor?: Decor;
   /** colour light over the whole room: [colour, alpha] */ tint?: [number, number];
   /** workstation look: 2 desk tiles (left, right), whether it carries a screen */ desk?: { tiles: number[]; monitor: boolean };
-  /** "hall": one big desk, everyone else waits on chairs */ layout?: Layout;
+  /** "hall": one big desk, everyone else waits on chairs; "lounge": armchairs, no desks */ layout?: Layout;
   props: Prop[];
 }
 
@@ -75,8 +75,10 @@ export const ROOM_THEMES: Partial<Record<District, RoomTheme>> = {
   watchtower: { floor: 0x45523f, wall: 0x8f9888, kind: "tile", windows: [], decor: "radar", tint: [0x002010, 0.18], props: [
     tall(K.IN_SERVER, 6, 2, { leds: true }), tall(K.IN_SERVER, 9, 2, { leds: true })] },
   // living room: fireplace, piano, armchairs, warm light
-  home: { floor: 0xa8704a, wall: 0xf2d8b8, kind: "wood", windows: [14], decor: "fireplace", tint: [0xff9040, 0.06], rugs: [[5.5, 2.6, 5, 3, 0x9c3d3d]],
-    desk: { tiles: [K.IN_TABLE[0], K.IN_TABLE[2]], monitor: false }, props: [
+  // idle sessions rest here: armchairs on two rugs instead of desks
+  home: { floor: 0xa8704a, wall: 0xf2d8b8, kind: "wood", windows: [14], decor: "fireplace", tint: [0xff9040, 0.06], layout: "lounge",
+    rugs: [[5.5, 2.6, 5, 3, 0x9c3d3d], [0.6, 4.4, 5.8, 6.4, 0x7a5a3a], [9.6, 4.4, 5.8, 6.4, 0x7a5a3a]], props: [
+    block(K.IN_OVAL_TABLE, 2, 2.5, 6.5), block(K.IN_OVAL_TABLE, 2, 11.5, 6.5), one(K.IN_CANDLE, 3, 6.6), one(K.IN_CANDLE, 12, 6.6),
     block(K.IN_PIANO, 2, 3.5, 2), tall(K.IN_ARMCHAIR, 12), tall(K.IN_ARMCHAIR, 13), one(K.IN_PLANT, 15),
     block(K.IN_OVAL_TABLE, 2, 7, 3), ...corners] },
   // assembly hall: the one big desk on the stage, banners, red carpet, rows of waiting chairs
@@ -123,6 +125,8 @@ export function deskSpots(n: number, layout: Layout = "office"): Spot[] {
   if (layout === "hall") {
     out.push({ x: 7, y: 3, big: true }); // the one desk, 3 wide on the stage
     for (const y of [5, 7, 9]) for (const x of [2, 5, 10, 13]) if (out.length < MAX_DESKS) out.push({ x, y }); // a chair, no desk
+  } else if (layout === "lounge") {
+    for (const y of [5, 10]) for (const x of [1, 3, 5, 10, 12, 14]) out.push({ x, y }); // an armchair, rows y-1..y; coffee table between the rows
   } else {
     // two pods of 3 desks facing 3 desks, aisle to the door in between; 2-wide desks at x..x+1
     for (const x of [1, 3, 5, 9, 11, 13]) out.push({ x, y: 6 }); // chair row 6, desk row 7

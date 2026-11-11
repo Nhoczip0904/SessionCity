@@ -184,8 +184,8 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
 
   /** Chair, desk and screen; the person (if any) sits between chair and desk. In a hall only the big desk has one. */
   const desk = theme.desk ?? { tiles: K.IN_DESK, monitor: true };
-  const hall = theme.layout === "hall";
-  const span = (big: boolean) => (big ? { left: -1, w: 3 } : hall ? { left: 0, w: 1 } : { left: 0, w: 2 });
+  const hall = theme.layout === "hall", lounge = theme.layout === "lounge";
+  const span = (big: boolean) => (big ? { left: -1, w: 3 } : hall || lounge ? { left: 0, w: 1 } : { left: 0, w: 2 });
   const station = (x: number, y: number, big: boolean, fig: Container | null, on: boolean, back = false): Container => {
     const { w } = span(big), left = x + span(big).left;
     const cx = (left + w / 2) * T;
@@ -197,6 +197,17 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
         fig.position.set(Math.round(cx), (y + 1) * T - 1);
         c.addChild(fig);
       }
+      return c;
+    }
+    if (lounge) {
+      // armchair: back on row y-1, seat on row y; the person sits between them
+      blob(cx, (y + 1) * T - 1, T * 0.5);
+      c.addChild(sprite(K.IN_ARMCHAIR[0], left * T, (y - 1) * T, 0x7a3a2a));
+      if (fig) {
+        fig.position.set(Math.round(cx), y * T + 10);
+        c.addChild(fig);
+      }
+      c.addChild(sprite(K.IN_ARMCHAIR[1], left * T, y * T, 0x7a3a2a));
       return c;
     }
     const deskTiles = big ? K.IN_BIG_DESK : desk.tiles;
@@ -256,12 +267,12 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
     const name = s.label.length > max ? s.label.slice(0, max - 1) + "…" : s.label;
     const t = label(s.done ? `✓ ${name}` : `${s.badge ? s.badge + " " : ""}${name}`);
     t.anchor.set(0.5, back ? 0 : 1);
-    t.position.set(cx, back ? (y + 1) * T - 2 : y * T + 2);
+    t.position.set(cx, back ? (y + 1) * T - 2 : lounge ? (y - 1) * T + 2 : y * T + 2);
     if (s.done) t.alpha = 0.7;
     seat.addChild(t);
     seat.eventMode = "static";
     seat.cursor = "pointer";
-    seat.hitArea = back ? new Rectangle(left * T, (y - 1) * T, w * T, 2 * T + 8) : new Rectangle(left * T, y * T - 6, w * T, 2 * T + 6);
+    seat.hitArea = lounge ? new Rectangle(left * T, (y - 1) * T - 6, w * T, 2 * T + 6) : back ? new Rectangle(left * T, (y - 1) * T, w * T, 2 * T + 8) : new Rectangle(left * T, y * T - 6, w * T, 2 * T + 6);
     seat.on("pointertap", s.onPick);
     root.addChild(seat);
   }

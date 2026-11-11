@@ -42,6 +42,13 @@ describe("deskSpots", () => {
     expect(s.filter((p) => p.back).map((p) => p.y)).toEqual([9, 9, 9, 9, 9, 9]); // facing up, desk on row 8
     expect(deskSpots(6).every((p) => !p.back)).toBe(true); // the front row fills first
   });
+  it("lounge: 12 armchairs in two groups, no desk", () => {
+    const s = deskSpots(12, "lounge");
+    expect(s).toHaveLength(12);
+    expect(s.some((p) => p.big || p.back)).toBe(false);
+    expect(new Set(s.map((p) => `${p.x},${p.y}`)).size).toBe(12);
+    for (const p of s) expect(p.x >= 7 && p.x <= 8).toBe(false); // the aisle to the door stays free
+  });
   it("hall: one big desk, the rest are chairs", () => {
     const s = deskSpots(12, "hall");
     expect(s.filter((p) => p.big)).toEqual([{ x: 7, y: 3, big: true }]);
