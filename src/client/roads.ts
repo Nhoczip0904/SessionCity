@@ -57,17 +57,35 @@ export function carPos(g: RoadGraph, car: CarState): { x: number; y: number; dx:
   return { x: p.x + dx * car.d, y: p.y + dy * car.d, dx, dy };
 }
 
-/** Uniform over walkable tiles within Manhattan `radius` of `door`; `door` if none. */
-export function wanderTarget(walkable: boolean[][], door: Pt, radius: number, rand: Rand): Pt {
+/** Uniform over walkable, untaken tiles within Manhattan `radius` of `door`; `door` if none. */
+export function wanderTarget(walkable: boolean[][], door: Pt, radius: number, rand: Rand, taken: (p: Pt) => boolean = () => false): Pt {
   const c: Pt[] = [];
   for (let y = door.y - radius; y <= door.y + radius; y++)
     for (let x = door.x - radius; x <= door.x + radius; x++)
-      if (Math.abs(x - door.x) + Math.abs(y - door.y) <= radius && walkable[y]?.[x]) c.push({ x, y });
+      if (Math.abs(x - door.x) + Math.abs(y - door.y) <= radius && walkable[y]?.[x] && !taken({ x, y })) c.push({ x, y });
   return c.length ? pick(c, rand) : door;
 }
 
-export function randomRoadTile(walkable: boolean[][], rand: Rand): Pt {
+export function randomRoadTile(walkable: boolean[][], rand: Rand, taken: (p: Pt) => boolean = () => false): Pt {
   const c: Pt[] = [];
-  walkable.forEach((row, y) => row.forEach((ok, x) => ok && c.push({ x, y })));
+  walkable.forEach((row, y) => row.forEach((ok, x) => ok && !taken({ x, y }) && c.push({ x, y })));
   return c.length ? pick(c, rand) : { x: 0, y: 0 };
+}
+
+/** Half a lane: cars keep to the right of the 2-tile road's centre line. */
+export const LANE = 0.5;
+type Heading = { x: number; y: number; dx: number; dy: number };
+
+/** Position in the right-hand lane for a car on the centre line heading (dx, dy); screen y points down. */
+export const inLane = (p: Heading): Heading => ({ ...p, x: p.x - p.dy * LANE, y: p.y + p.dx * LANE });
+
+/** Distance in tiles to the nearest car straight ahead in the same lane (Infinity if none). */
+export function gapAhead(me: Heading, others: { x: number; y: number }[]): number {
+  let best = Infinity;
+  for (const o of others) {
+    const rx = o.x - me.x, ry = o.y - me.y;
+    const along = rx * me.dx + ry * me.dy, side = Math.abs(rx * me.dy - ry * me.dx);
+    if (along > 0.01 && side < 0.6 && along < best) best = along;
+  }
+  return best;
 }
