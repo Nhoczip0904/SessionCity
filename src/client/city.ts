@@ -29,6 +29,10 @@ const PLOTS: Plot[] = [
   { id: "airport", x: 34, y: 17, w: 9, h: 5, up: true, roof: 0x8f969c, wall: 0xc8ccd0, style: "flat" },
   { id: "site", x: 34, y: 23, w: 9, h: 5, up: false, roof: 0xb8874a, wall: 0xe0b060, style: "flat" },
 ];
+export const districtColors = (d: District) => {
+  const p = PLOTS.find((q) => q.id === d)!;
+  return { roof: p.roof, wall: p.wall };
+};
 // HQ row: 7 two-tile houses facing road row 16, 7 facing road row 28
 const HQ: { x: number; y: number; up: boolean }[] = [];
 for (let i = 0; i < 7; i++) HQ.push({ x: 17 + 2 * i, y: 17, up: true });
