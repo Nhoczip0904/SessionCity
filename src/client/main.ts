@@ -158,13 +158,14 @@ async function main() {
     if (place.kind === "room") {
       const info = districtInfo(place.district);
       const { people, extra } = roomOccupants(place.district, [...sessions.values()], [...employees.values()]);
-      const spots = deskSpots(people.length);
-      people.forEach((o, i) => seats.push({ at: spots[i], kind: o.kind, id: o.id, label: o.name, badge: o.badge, done: o.done }));
+      const theme = ROOM_THEMES[place.district] ?? DEFAULT_THEME;
+      const spots = deskSpots(people.length, theme.layout);
+      people.forEach((o, i) => seats.push({ at: spots[i], kind: o.kind, id: o.id, label: o.name, badge: o.badge, done: o.done, big: spots[i].big }));
       return {
         seats,
         board: [`${info.label} — ${info.sign}`, info.description, ...(info.examples.length ? [info.examples.join(", ")] : [])],
         note: people.length ? (extra ? `+${extra}` : null) : "Chưa ai làm ở đây",
-        theme: ROOM_THEMES[place.district] ?? DEFAULT_THEME,
+        theme,
       };
     }
     const s = detail ?? sessions.get(place.sessionId);
