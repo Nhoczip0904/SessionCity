@@ -8,8 +8,8 @@ import type { Sheets } from "./tiles.js";
 export const TILE = 16;
 const COLS = 48, ROWS = 32;
 // ring road + cross streets, each 2 tiles wide
-const ROAD_ROWS = [2, 3, 15, 16, 28, 29];
-const ROAD_COLS = [2, 3, 15, 16, 31, 32, 44, 45];
+export const ROAD_ROWS = [2, 3, 15, 16, 28, 29];
+export const ROAD_COLS = [2, 3, 15, 16, 31, 32, 44, 45];
 const isRoad = (x: number, y: number) =>
   (ROAD_ROWS.includes(y) && x >= 2 && x <= 45) || (ROAD_COLS.includes(x) && y >= 2 && y <= 29);
 
