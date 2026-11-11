@@ -142,7 +142,9 @@ export class Panel {
     root.replaceChildren(close, this.banner, this.body);
     root.hidden = true;
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") this.close();
+      if (e.key !== "Escape" || root.hidden) return;
+      this.close();
+      e.stopImmediatePropagation(); // panel first, then scene
     });
   }
 
