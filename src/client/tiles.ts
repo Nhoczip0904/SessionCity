@@ -98,7 +98,7 @@ export const CARS_UP = [[697, 698, 734, 735], [845, 846, 882, 883], [993, 994, 1
 export const CARS_DOWN = [[699, 700, 736, 737], [847, 848, 884, 885], [995, 996, 1032, 1033]]; // seen from the front
 
 // --- roguelike-indoors tile indices (row * 27 + col; furniture only, no floor/wall tiles) ---
-export const IN_CHAIR = 54; // seen from the front, seat towards the viewer
+export const IN_CHAIR = 54, IN_CHAIR_SIDE = [56, 57]; // front view; side views facing right, left
 export const IN_DESK = [112, 114], IN_BIG_DESK = [112, 113, 114], IN_MONITOR = 129;
 export const IN_PLANT = 16, IN_PLANT2 = 17, IN_CANDLE = 19, IN_CLOCK = 238, IN_STOOL = 97;
 export const IN_PAINTING = 343, IN_PAINTING2 = 370, IN_WIDE_PAINTING = [394, 395, 396], IN_TAPESTRY = [421, 422, 423];

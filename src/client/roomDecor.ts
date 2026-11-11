@@ -1,0 +1,176 @@
+import { Graphics } from "pixi.js";
+import type { Decor } from "./rooms.js";
+
+const T = 16;
+/** Left/right wall panels beside the board (board spans x 50–206 on rows 0–1). */
+const LEFT = { x: 4, y: 5, w: 42, h: 23 }, RIGHT = { x: 210, y: 5, w: 42, h: 23 };
+const hash = (n: number) => (((n * 2654435761) >>> 0) % 1000) / 1000;
+
+export type Anim = (draw: (g: Graphics, t: number) => void) => void;
+
+function panel(g: Graphics, p: typeof LEFT, frame: number, face: number) {
+  g.rect(p.x + 1, p.y + 1, p.w, p.h).fill({ color: 0x000000, alpha: 0.25 });
+  g.rect(p.x, p.y, p.w, p.h).fill(frame).rect(p.x + 2, p.y + 2, p.w - 4, p.h - 4).fill(face);
+}
+
+/** Set pieces under the furniture and people (floor, walls). */
+export function decorUnder(kind: Decor, anim: Anim) {
+  switch (kind) {
+    case "shelves": // warm pools of lamp light on the reading rug
+      return anim((g, t) => {
+        const a = 0.1 + 0.02 * Math.sin(t / 400);
+        g.circle(7.5 * T, 3 * T, 30).fill({ color: 0xffc070, alpha: a }).circle(8.5 * T, 3 * T, 18).fill({ color: 0xffe0a0, alpha: a });
+      });
+    case "pinboard":
+      return anim((g) => {
+        panel(g, LEFT, 0x8a5a36, 0xc49a6c);
+        const notes = [0xffe066, 0xff8fa3, 0x8fd6ff, 0xa6f08f];
+        for (let i = 0; i < 10; i++) g.rect(LEFT.x + 4 + (i % 5) * 7, LEFT.y + 4 + Math.floor(i / 5) * 8, 6, 6).fill(notes[i % 4]);
+        // blueprint grid over the design rug
+        for (let x = 5.5 * T + 4; x < 10.5 * T; x += 6) g.rect(x, 2.6 * T + 3, 0.5, 3 * T - 6).fill({ color: 0xffffff, alpha: 0.35 });
+        for (let y = 2.6 * T + 4; y < 5.6 * T - 3; y += 6) g.rect(5.5 * T + 3, y, 5 * T - 6, 0.5).fill({ color: 0xffffff, alpha: 0.35 });
+      });
+    case "worksite":
+      return anim((g) => {
+        // scaffolding on the left wall
+        for (let x = LEFT.x; x <= LEFT.x + LEFT.w; x += 14) g.rect(x, 3, 2, 29).fill(0x8c8c8c);
+        for (let y = 8; y < 32; y += 10) g.rect(LEFT.x, y, LEFT.w + 2, 2).fill(0x8c8c8c).rect(LEFT.x, y + 2, LEFT.w + 2, 2).fill(0xb07a3a);
+        // hazard tape around the work zone
+        const x0 = 4.5 * T, y0 = 2.8 * T, w = 7 * T, h = 2.4 * T;
+        for (let i = 0; i < w; i += 6) {
+          const c = (i / 6) % 2 ? 0x222222 : 0xf2c200;
+          g.rect(x0 + i, y0, 6, 2).fill(c).rect(x0 + i, y0 + h, 6, 2).fill(c);
+        }
+        for (let i = 0; i < h; i += 6) {
+          const c = (i / 6) % 2 ? 0x222222 : 0xf2c200;
+          g.rect(x0, y0 + i, 2, 6).fill(c).rect(x0 + w, y0 + i, 2, 6).fill(c);
+        }
+      });
+    case "racks":
+      return anim((g, t) => {
+        g.rect(0, 3, 16 * T, 3).fill(0xd4b030); // cable tray under the ceiling
+        for (let y = 2; y < 12; y++) for (let x = 0; x < 16; x++) for (const [dx, dy] of [[5, 5], [10, 5], [5, 10], [10, 10]]) g.rect(x * T + dx, y * T + dy, 1, 1).fill({ color: 0x000000, alpha: 0.35 });
+        // cold air rising from the floor between the rack rows
+        const a = 0.12 + 0.06 * Math.sin(t / 500);
+        g.rect(7 * T, 3 * T, 2 * T, 2 * T).fill({ color: 0x70c8ff, alpha: a });
+      });
+    case "flasks":
+      return anim((g, t) => {
+        panel(g, LEFT, 0x3a4a3e, 0x10241a);
+        for (let i = 0; i < 5; i++) {
+          const ok = i !== 3;
+          g.rect(LEFT.x + 4, LEFT.y + 4 + i * 3.4, 2, 2).fill(ok ? 0x5cff8a : 0xff5c5c);
+          g.rect(LEFT.x + 8, LEFT.y + 4 + i * 3.4, 10 + hash(i) * 20, 2).fill(ok ? 0x2f8f50 : 0x8f2f2f);
+        }
+        const p = (t / 4000) % 1; // running test bar
+        g.rect(LEFT.x + 4, LEFT.y + LEFT.h - 4, (LEFT.w - 8) * p, 1.5).fill(0xffe066);
+      });
+    case "diff":
+      return anim((g, t) => {
+        panel(g, LEFT, 0x2a2a34, 0x1b1b22);
+        const kinds = [0, 1, 1, 0, 2, 2, 2, 0];
+        kinds.forEach((k, i) => {
+          const y = LEFT.y + 3 + i * 2.3;
+          if (k) g.rect(LEFT.x + 2, y, LEFT.w - 4, 2).fill(k === 1 ? 0x5a1f25 : 0x1f4d2a);
+          g.rect(LEFT.x + 5, y + 0.5, 8 + hash(i + 3) * 24, 1).fill(k === 1 ? 0xff8a8a : k === 2 ? 0x8aff9a : 0x9a9aa8);
+        });
+        if (Math.floor(t / 500) % 2) g.rect(LEFT.x + 5, LEFT.y + LEFT.h - 4, 3, 1).fill(0xffffff);
+      });
+    case "conveyor":
+      return anim((g, t) => {
+        const x0 = 2 * T, x1 = 14 * T, y0 = 3.2 * T, h = 1.3 * T;
+        g.rect(x0, y0 + h, x1 - x0, 3).fill({ color: 0x000000, alpha: 0.25 });
+        g.rect(x0, y0, x1 - x0, h).fill(0x3a3a3a);
+        const off = (t / 40) % 8;
+        for (let x = x0 - 8 + off; x < x1; x += 8) if (x >= x0) g.rect(x, y0 + 2, 1, h - 4).fill(0x555555);
+        for (let i = 0; i < x1 - x0; i += 6) g.rect(x0 + i, y0 - 2, 6, 2).fill((i / 6) % 2 ? 0x222222 : 0xf2c200).rect(x0 + i, y0 + h, 6, 2).fill((i / 6) % 2 ? 0x222222 : 0xf2c200);
+        for (let k = 0; k < 4; k++) {
+          const x = x0 + ((t / 40 + k * 48) % (x1 - x0 - 10));
+          g.rect(x, y0 + 4, 10, 10).fill(0xb0824a).rect(x, y0 + 8, 10, 1.5).fill(0x7a5630);
+        }
+      });
+    case "carousel":
+      return anim((g, t) => {
+        // departure board
+        panel(g, LEFT, 0x30343a, 0x111418);
+        for (let i = 0; i < 5; i++) {
+          g.rect(LEFT.x + 4, LEFT.y + 4 + i * 3.4, 10, 1.5).fill(0xffb020);
+          g.rect(LEFT.x + 17, LEFT.y + 4 + i * 3.4, 12, 1.5).fill(0xffd070);
+          const blink = i === 1 && Math.floor(t / 600) % 2;
+          g.rect(LEFT.x + 32, LEFT.y + 4 + i * 3.4, 6, 1.5).fill(blink ? 0x111418 : i === 1 ? 0x5cff8a : 0xffb020);
+        }
+        // baggage carousel
+        const x0 = 4.5 * T, y0 = 2.8 * T, w = 7 * T, h = 2.2 * T;
+        g.roundRect(x0 + 1, y0 + 2, w, h, 12).fill({ color: 0x000000, alpha: 0.25 });
+        g.roundRect(x0, y0, w, h, 12).fill(0x50555c).roundRect(x0 + 6, y0 + 6, w - 12, h - 12, 7).fill(0x8a9098);
+        const per = 2 * (w - 12) + 2 * (h - 12);
+        for (let k = 0; k < 6; k++) {
+          let d = (t / 30 + (k * per) / 6) % per;
+          let x: number, y: number;
+          if (d < w - 12) { x = x0 + 3 + d; y = y0 + 1; }
+          else if ((d -= w - 12) < h - 12) { x = x0 + w - 9; y = y0 + 3 + d; }
+          else if ((d -= h - 12) < w - 12) { x = x0 + w - 9 - d; y = y0 + h - 7; }
+          else { d -= w - 12; x = x0 + 1; y = y0 + h - 9 - d; }
+          g.roundRect(x, y, 7, 6, 1.5).fill([0xd04040, 0x3a6ad0, 0x2f9f5a, 0xe0b030, 0x8a4ad0, 0x404040][k]);
+        }
+      });
+    case "radar":
+      return anim((g, t) => {
+        for (const p of [LEFT, RIGHT]) {
+          panel(g, p, 0x2a302a, 0x08140c);
+          const scroll = Math.floor(t / 250);
+          for (let i = 0; i < 6; i++) g.rect(p.x + 4, p.y + 3 + i * 3, 6 + hash(i + scroll + p.x) * (p.w - 14), 1).fill(hash(i + scroll) > 0.85 ? 0xff6060 : 0x5cff8a);
+        }
+        const cx = 8 * T, cy = 3.9 * T, r = 15;
+        g.circle(cx, cy + 2, r + 2).fill({ color: 0x000000, alpha: 0.3 });
+        g.circle(cx, cy, r + 2).fill(0x2a302a).circle(cx, cy, r).fill(0x062010);
+        g.circle(cx, cy, r * 0.66).stroke({ color: 0x1f6a3a, width: 0.5 }).circle(cx, cy, r * 0.33).stroke({ color: 0x1f6a3a, width: 0.5 });
+        const a = (t / 900) % (Math.PI * 2);
+        for (let i = 0; i < 6; i++) {
+          const b = a - i * 0.12;
+          g.moveTo(cx, cy).lineTo(cx + Math.cos(b) * r, cy + Math.sin(b) * r).stroke({ color: 0x5cff8a, width: 1.2, alpha: 1 - i / 6 });
+        }
+        g.circle(cx + 6, cy - 4, 1).fill(0xff6060).circle(cx - 5, cy + 6, 1).fill(0x5cff8a);
+      });
+    case "fireplace":
+      return anim((g, t) => {
+        const x = LEFT.x + 2, w = LEFT.w - 4;
+        g.rect(x - 2, 2, w + 4, 3).fill(0x6b4a2e); // mantel
+        g.rect(x, 5, w, 27).fill(0x8a8a8a);
+        for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) g.rect(x + c * 10 + (r % 2) * 5, 5 + r * 7, 9, 6).fill(0x9a9a9a);
+        g.rect(x + 8, 14, w - 16, 18).fill(0x1a1010);
+        for (let i = 0; i < 5; i++) {
+          const fh = 6 + 5 * Math.abs(Math.sin(t / 120 + i * 1.7));
+          g.rect(x + 10 + i * 4.5, 32 - fh, 4, fh).fill(i % 2 ? 0xffb020 : 0xff6a20);
+        }
+        g.circle(x + w / 2, 3 * T, 26).fill({ color: 0xff8030, alpha: 0.1 + 0.03 * Math.sin(t / 150) });
+      });
+    case "stage":
+      return anim((g, t) => {
+        const x0 = 4.5 * T, w = 7 * T, y1 = 3.7 * T;
+        g.rect(x0, 2 * T, w, y1 - 2 * T).fill(0x7a4a26);
+        for (let y = 2 * T + 6; y < y1; y += 6) g.rect(x0, y, w, 1).fill(0x5e381c);
+        g.rect(x0, y1, w, 3).fill(0x4a2c14).rect(x0, y1 + 3, w, 2).fill({ color: 0x000000, alpha: 0.25 });
+        g.circle(8 * T, 2.9 * T, 22).fill({ color: 0xfff0b0, alpha: 0.12 + 0.03 * Math.sin(t / 700) });
+        g.rect(8 * T - 5, 2.4 * T, 10, 12).fill(0x5a3418).rect(8 * T - 6, 2.4 * T, 12, 2).fill(0x8a5a30); // lectern
+        g.rect(8 * T - 0.5, 2.1 * T, 1, 5).fill(0x222222).circle(8 * T, 2.1 * T, 1.5).fill(0x444444); // microphone
+      });
+  }
+}
+
+/** Set pieces drawn on top of the furniture (e.g. flasks standing on a table). */
+export function decorOver(kind: Decor, anim: Anim) {
+  if (kind !== "flasks") return;
+  anim((g, t) => {
+    [[7.3, 0x5cff8a], [8, 0x8fd6ff], [8.7, 0xff8fa3]].forEach(([fx, c], i) => {
+      const x = fx * T, y = 3 * T + 3;
+      g.rect(x - 2, y - 7, 4, 4).fill({ color: 0xffffff, alpha: 0.5 });
+      g.moveTo(x - 2, y - 3).lineTo(x - 5, y + 4).lineTo(x + 5, y + 4).lineTo(x + 2, y - 3).closePath().fill({ color: 0xffffff, alpha: 0.55 });
+      g.moveTo(x - 3.5, y + 1).lineTo(x - 5, y + 4).lineTo(x + 5, y + 4).lineTo(x + 3.5, y + 1).closePath().fill(c);
+      for (let b = 0; b < 2; b++) {
+        const p = ((t / 900 + i * 0.3 + b * 0.5) % 1);
+        g.circle(x - 1 + b * 2, y + 2 - p * 10, 0.8).fill({ color: c, alpha: 1 - p });
+      }
+    });
+  });
+}

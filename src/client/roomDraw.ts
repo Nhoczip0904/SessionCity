@@ -1,6 +1,7 @@
 import { Container, Graphics, Rectangle, Sprite, Text } from "pixi.js";
 import type { Pt } from "./path.js";
-import { BOARD_W, BOARD_X, ROOM_COLS, ROOM_ROWS, type Furniture, type RoomTheme } from "./rooms.js";
+import { decorOver, decorUnder, type Anim } from "./roomDecor.js";
+import { BOARD_W, BOARD_X, MAX_DESKS, ROOM_COLS, ROOM_ROWS, deskSpots, type Furniture, type RoomTheme } from "./rooms.js";
 import * as K from "./tiles.js";
 import type { Sheets } from "./tiles.js";
 
@@ -126,14 +127,26 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
   drawWalls(bg, theme);
   root.addChild(bg);
 
-  const sprite = (i: number, px: number, py: number, fallback: number): Container => {
-    if (ind) {
-      const s = new Sprite(ind(i));
+  const anim: Anim = (draw) => {
+    const g = new Graphics();
+    g.eventMode = "none";
+    draw(g, 0);
+    g.onRender = () => {
+      g.clear();
+      draw(g, performance.now());
+    };
+    root.addChild(g);
+  };
+  const sprite = (i: number, px: number, py: number, fallback: number, city = false): Container => {
+    const tex = city ? sheets?.city(i) : ind?.(i);
+    if (tex) {
+      const s = new Sprite(tex);
       s.position.set(px, py);
       return s;
     }
     return new Graphics().rect(px + 1, py + 1, T - 2, T - 2).fill(fallback);
   };
+  if (theme.decor) decorUnder(theme.decor, anim);
   const shadow = new Graphics();
   root.addChild(shadow);
   const blob = (cx: number, cy: number, rx: number) => shadow.ellipse(cx, cy, rx, 2.5).fill({ color: 0x000000, alpha: 0.22 });
@@ -144,7 +157,7 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
   for (const p of theme.props) {
     const box = new Container();
     const rows = Math.ceil(p.tiles.length / p.w);
-    p.tiles.forEach((t, i) => box.addChild(sprite(t, (p.x + (i % p.w)) * T, (p.y + Math.floor(i / p.w)) * T, p.action ? 0xb08a4a : 0x7a6a50)));
+    p.tiles.forEach((t, i) => box.addChild(sprite(t, (p.x + (i % p.w)) * T, (p.y + Math.floor(i / p.w)) * T, p.action ? 0xb08a4a : 0x7a6a50, p.city)));
     if (p.y >= 2) blob((p.x + p.w / 2) * T, (p.y + rows) * T - 1, p.w * T * 0.45);
     if (p.leds) ledSpots.push({ x: p.x, y: p.y });
     root.addChild(box);
@@ -167,20 +180,38 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
     }
   }
   leds(root, ledSpots);
+  if (theme.decor) decorOver(theme.decor, anim);
+
+  /** Chair, desk and screen; the person (if any) sits between chair and desk. */
+  const desk = theme.desk ?? { tiles: K.IN_DESK, monitor: true };
+  const station = (x: number, y: number, big: boolean, fig: Container | null, on: boolean): Container => {
+    const left = big ? x - 1 : x, w = big ? 3 : 2;
+    const cx = (left + w / 2) * T;
+    const c = new Container();
+    blob(cx, (y + 2) * T - 1, w * T * 0.45);
+    c.addChild(sprite(K.IN_CHAIR, cx - T / 2, y * T + 2, 0x555555));
+    if (fig) {
+      fig.position.set(Math.round(cx), (y + 1) * T + 5); // legs hidden behind the desk
+      c.addChild(fig);
+    }
+    (big ? K.IN_BIG_DESK : desk.tiles).forEach((i, n) => c.addChild(sprite(i, (left + n) * T, (y + 1) * T, 0x8b5a2b)));
+    if (big || desk.monitor) {
+      const m = sprite(K.IN_MONITOR, (left + w - 1) * T + 2, (y + 1) * T - 6, 0x333333);
+      if (!on && m instanceof Sprite) m.tint = 0x707070; // screen off
+      c.addChild(m);
+    }
+    return c;
+  };
+
+  // every workstation is there, taken or not
+  const taken = new Set(seats.map((s) => `${s.at.x},${s.at.y}`));
+  for (const p of deskSpots(MAX_DESKS)) if (!taken.has(`${p.x},${p.y}`)) root.addChild(station(p.x, p.y, false, null, false));
 
   for (const s of seats) {
     const { x, y } = s.at;
     const left = s.big ? x - 1 : x, w = s.big ? 3 : 2;
-    const cx = (left + w / 2) * T; // desk centre, where the person sits
-    const seat = new Container();
-    blob(cx, (y + 2) * T - 1, w * T * 0.45);
-    seat.addChild(sprite(K.IN_CHAIR, cx - T / 2, y * T + 2, 0x555555));
-    if (s.fig && !s.done) {
-      s.fig.position.set(Math.round(cx), (y + 1) * T + 5); // legs hidden behind the desk
-      seat.addChild(s.fig);
-    }
-    (s.big ? K.IN_BIG_DESK : K.IN_DESK).forEach((i, n) => seat.addChild(sprite(i, (left + n) * T, (y + 1) * T, 0x8b5a2b)));
-    if (!s.done) seat.addChild(sprite(K.IN_MONITOR, (left + w - 1) * T + 2, (y + 1) * T - 6, 0x333333));
+    const cx = (left + w / 2) * T;
+    const seat = station(x, y, !!s.big, s.fig && !s.done ? s.fig : null, !s.done);
     const name = s.label.length > 14 ? s.label.slice(0, 13) + "…" : s.label; // same cut as the street labels; neighbours sit 4 tiles apart
     const t = label(s.done ? `✓ ${name}` : `${s.badge ? s.badge + " " : ""}${name}`);
     t.anchor.set(0.5, 1);
@@ -201,15 +232,16 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
     root.addChild(t);
   }
 
-  // soft vignette: darker towards the front corners
   const v = new Graphics();
+  v.eventMode = "none";
+  if (theme.tint) v.rect(0, 0, W, H).fill({ color: theme.tint[0], alpha: theme.tint[1] });
+  // soft vignette: darker towards the front corners
   for (let i = 0; i < 4; i++) {
     const a = 0.05;
     v.rect(0, WALL + i * 4, 6 + i * 4, H).fill({ color: 0x000000, alpha: a });
     v.rect(W - 6 - i * 4, WALL + i * 4, 6 + i * 4, H).fill({ color: 0x000000, alpha: a });
     v.rect(0, H - 6 - i * 4, W, 6 + i * 4).fill({ color: 0x000000, alpha: a });
   }
-  v.eventMode = "none";
   root.addChild(v);
   root.sortableChildren = true;
   return root;
