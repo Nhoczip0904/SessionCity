@@ -15,4 +15,21 @@ describe("loadSheets", () => {
     expect(frame(sheets.city(38))).toEqual({ x: 16, y: 16, w: 16, h: 16 });
     expect(frame(sheets.char(2, 1))).toEqual({ x: 34, y: 17, w: 16, h: 16 });
   });
+
+  it("cuts indoor frames with 1 px spacing", async () => {
+    const fake = () => Promise.resolve(new Texture({ source: new TextureSource({ width: 458, height: 305 }) }));
+    const sheets = (await loadSheets(fake))!;
+    expect(frame(sheets.indoor!(28))).toEqual({ x: 17, y: 17, w: 16, h: 16 });
+  });
+
+  it("indoor sheet failing leaves city sheets usable", async () => {
+    const load = (u: string) =>
+      u.includes("roguelikeIndoor")
+        ? Promise.reject(new Error("404"))
+        : Promise.resolve(new Texture({ source: new TextureSource({ width: 592, height: 448 }) }));
+    const sheets = await loadSheets(load);
+    expect(sheets).not.toBeNull();
+    expect(sheets!.indoor).toBeUndefined();
+    expect(frame(sheets!.city(0)).w).toBe(16);
+  });
 });
