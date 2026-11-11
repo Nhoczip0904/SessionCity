@@ -32,7 +32,7 @@ const agentsDir = join(homedir(), ".claude", "agents");
 const launcher = claude
   ? (opts: LaunchOpts) => launch(opts, { claude, wt, spawn, tmpDir: tmpdir(), setTimeout })
   : () => Promise.reject(new Error("claude not found"));
-const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, launcher });
+const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), launcher });
 await watcher.start();
 console.log(server.url);
 if (!claude) console.error("Chưa tìm thấy claude.exe — nút Mở phiên sẽ báo lỗi (cài: winget install Anthropic.ClaudeCode)");

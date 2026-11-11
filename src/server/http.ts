@@ -8,6 +8,7 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import type { Store } from "./store.js";
 import { LaunchInputError, validateLaunch, type LaunchOpts } from "./launch.js";
+import { listShelf, readShelfItem } from "./shelf.js";
 import { exploreState, setExplore, UserOwnedError } from "./agents.js";
 
 const MAX_BODY = 16_384;
@@ -35,6 +36,7 @@ export async function startServer(opts: {
   clientDir: string;
   claude: string | null;
   agentsDir: string;
+  claudeDir: string;
   launcher: (opts: LaunchOpts) => Promise<void>;
 }): Promise<{ url: string; close(): Promise<void> }> {
   const { token, store } = opts;
@@ -144,6 +146,20 @@ export async function startServer(opts: {
     }
   }
 
+  async function shelfRoute(res: ServerResponse, sessionId: string, itemId: string | undefined) {
+    try {
+      const s = store.detailSession(sessionId);
+      if (!s) return json(res, 404, { error: "not found" });
+      const cwd = s.cwd || undefined;
+      if (itemId === undefined) return json(res, 200, await listShelf(cwd, opts.claudeDir, store.skillsUsed(sessionId)));
+      if (!/^[0-9a-f]{16}$/.test(itemId)) return json(res, 404, { error: "not found" });
+      const r = await readShelfItem(cwd, opts.claudeDir, itemId);
+      json(res, r ? 200 : 404, r ?? { error: "not found" });
+    } catch {
+      if (!res.headersSent) json(res, 500, { error: "internal error" });
+    }
+  }
+
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     let url: URL;
     try {
@@ -159,6 +175,17 @@ export async function startServer(opts: {
       if (url.pathname === "/api/launch") return void launchRoute(req, res);
       if (url.pathname === "/api/agents/explore") return void exploreRoute(req, res);
       if (url.pathname === "/api/state") return send(res, 200, JSON.stringify(store.snapshot()), TYPES[".json"]);
+      const sh = /^\/api\/session\/([^/]+)\/shelf(?:\/([^/]+))?$/.exec(url.pathname);
+      if (sh) {
+        let sid: string, item: string | undefined;
+        try {
+          sid = decodeURIComponent(sh[1]!);
+          item = sh[2] === undefined ? undefined : decodeURIComponent(sh[2]);
+        } catch {
+          return json(res, 400, { error: "bad request" });
+        }
+        return void shelfRoute(res, sid, item);
+      }
       const m = /^\/api\/(session|employee)\/([^/]+)$/.exec(url.pathname);
       if (m) {
         let id: string;
