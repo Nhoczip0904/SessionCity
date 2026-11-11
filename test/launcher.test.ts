@@ -147,3 +147,13 @@ describe("renderModelRules", () => {
     expect(q(d, ".msg").textContent).toBe("Không ghi được Explore.md");
   });
 });
+
+describe("launch preset", () => {
+  it("preselects preset and adds it when missing", () => {
+    const d = renderLaunchDialog(["/a", "/b"], async () => null, "/b");
+    expect(q<HTMLSelectElement>(d, "select.folder").value).toBe("/b");
+    const e = renderLaunchDialog(["/a"], async () => null, "/z");
+    expect(q<HTMLSelectElement>(e, "select.folder").value).toBe("/z");
+    expect(e.querySelectorAll("select.folder option").length).toBe(2);
+  });
+});
