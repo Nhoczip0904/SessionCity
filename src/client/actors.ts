@@ -2,6 +2,7 @@ import { Container, Graphics, Rectangle, Sprite, Text, type Texture } from "pixi
 import type { District, Employee, Session, State } from "../shared/types.js";
 import { TILE, type buildCity } from "./city.js";
 import { findPath, type Pt } from "./path.js";
+import { randomRoadTile, wanderTarget } from "./roads.js";
 import * as K from "./tiles.js";
 import type { Outfit, Sheets } from "./tiles.js";
 
@@ -48,6 +49,13 @@ function figure(body: number, small: boolean): Graphics {
   return g;
 }
 
+type Rand = () => number;
+const same = (a: Pt, b: Pt) => a.x === b.x && a.y === b.y;
+
+/** Where an idle actor settles: its door, or a random walkable tile within 3 of it when wandering. */
+export const restTarget = (home: Pt, wander: boolean, walkable: boolean[][], rand: Rand): Pt =>
+  wander ? wanderTarget(walkable, home, 3, rand) : home;
+
 const outfitFor = (type: string): Outfit =>
   type === "Explore" ? K.OUTFIT_EXPLORE
   : type === "Plan" ? K.OUTFIT_PLAN
@@ -64,7 +72,10 @@ interface Actor {
   badge?: Text;
   tx: number; ty: number; // tile position (float while walking)
   path: Pt[];
-  target?: Pt;
+  home?: Pt;
+  wander: boolean;
+  wait: number; // ms until the next wander step
+  citizen?: boolean;
 }
 
 export class Actors {
@@ -75,6 +86,7 @@ export class Actors {
   private textures = new Map<string, Texture>();
   private hqOwner: (string | undefined)[] = [];
   private hqHits: Container[];
+  private citizens: Actor[] = [];
   private clock = 0;
 
   constructor(
@@ -83,6 +95,7 @@ export class Actors {
     private bake: (g: Graphics) => Texture,
     private sheets: Sheets | null,
     private onPick: (kind: PickKind, id: string) => void,
+    private opts: { motion: boolean; rand: Rand } = { motion: !matchMedia("(prefers-reduced-motion: reduce)").matches, rand: Math.random },
   ) {
     layer.sortableChildren = true;
     // HQ houses: clicking one picks the session living there
@@ -96,6 +109,22 @@ export class Actors {
       layer.addChild(h);
       return h;
     });
+    if (opts.motion) for (let i = 0; i < 5; i++) this.citizens.push(this.makeCitizen());
+  }
+
+  private makeCitizen(): Actor {
+    const a = this.make(randomRoadTile(this.city.walkable, this.opts.rand), "", () => {}, false);
+    a.c.eventMode = "none";
+    a.label.visible = false;
+    a.citizen = true;
+    a.wander = true;
+    this.dress(a, "citizen", () => {
+      if (this.sheets) return this.figure(0, K.OUTFIT_CITIZEN, true);
+      const spr = new Sprite(this.tex(0x999999, true));
+      spr.anchor.set(0.5, 1);
+      return spr;
+    });
+    return a;
   }
 
   private tex(color: number, small: boolean): Texture {
@@ -140,7 +169,7 @@ export class Actors {
       c.on("pointerout", () => (label.visible = false));
     }
     this.layer.addChild(c);
-    return { c, fig: c, look: "", label, tx: at.x, ty: at.y, path: [] };
+    return { c, fig: c, look: "", label, tx: at.x, ty: at.y, path: [], wander: false, wait: 0 };
   }
 
   /** (Re)builds the figure when its look changes, e.g. an employee's type gets refined. */
@@ -157,10 +186,17 @@ export class Actors {
     a.c.hitArea = new Rectangle(-w / 2, -h, w, h);
   }
 
-  private goTo(a: Actor, to: Pt) {
-    if (a.target && a.target.x === to.x && a.target.y === to.y) return;
-    a.target = to;
+  private walk(a: Actor, to: Pt) {
     a.path = findPath(this.city.walkable, { x: Math.round(a.tx), y: Math.round(a.ty) }, to);
+  }
+
+  /** A new district door sends the actor there at once; `wander` only decides what it does once idle. */
+  private setHome(a: Actor, home: Pt, wander: boolean) {
+    a.wander = this.opts.motion && wander;
+    if (a.home && same(a.home, home)) return;
+    a.home = home;
+    a.wait = 0;
+    this.walk(a, home);
   }
 
   private drop(map: Map<string, Actor>, keep: Set<string>) {
@@ -209,7 +245,7 @@ export class Actors {
         if (badge) m.badge.style.fill = badge === "!" ? 0xffd23f : 0x9ad0ff;
         m.badge.visible = badge !== "";
       }
-      this.goTo(m, this.door(s.district));
+      this.setHome(m, this.door(s.district), s.status === "working");
     }
     this.hqHits.forEach((h, i) => (h.eventMode = this.hqOwner[i] ? "static" : "none"));
 
@@ -236,7 +272,7 @@ export class Actors {
         a.label.text = e.type;
         const outfit = outfitFor(e.type);
         this.dress(a, this.sheets ? `${outfit.shirt}|${outfit.own}|${outfit.item}` : "staff", () => this.figure(slot, outfit, true));
-        this.goTo(a, this.door(e.district));
+        this.setHome(a, this.door(e.district), true);
       }
       const extra = list.length - MAX_EMPLOYEES;
       let t = this.more.get(s.id);
@@ -255,10 +291,24 @@ export class Actors {
     this.drop(this.staff, shown);
   }
 
+  /** An actor with no path left: go home, or (wandering) pick a new spot after a pause. */
+  private rest(a: Actor, dtMs: number) {
+    const at = { x: Math.round(a.tx), y: Math.round(a.ty) };
+    if (!a.wander) {
+      if (a.home && !same(at, a.home)) this.walk(a, a.home);
+      return;
+    }
+    a.wait -= dtMs;
+    if (a.wait > 0) return;
+    const to = a.citizen ? randomRoadTile(this.city.walkable, this.opts.rand) : restTarget(a.home!, true, this.city.walkable, this.opts.rand);
+    this.walk(a, to);
+    a.wait = 1000 + 3000 * this.opts.rand();
+  }
+
   update(dtMs: number): void {
     this.clock += dtMs;
     const stacks = new Map<number, number>(); // tile key -> actors already standing there
-    for (const a of [...this.mayors.values(), ...this.staff.values()]) {
+    for (const a of [...this.mayors.values(), ...this.staff.values(), ...this.citizens]) {
       let step = dtMs * SPEED;
       while (step > 0 && a.path.length) {
         const n = a.path[0], dx = n.x - a.tx, dy = n.y - a.ty, d = Math.abs(dx) + Math.abs(dy);
@@ -266,9 +316,10 @@ export class Actors {
         if (d <= step) { a.tx = n.x; a.ty = n.y; a.path.shift(); step -= d; }
         else { a.tx += (dx / d) * step; a.ty += (dy / d) * step; step = 0; }
       }
+      if (!a.path.length) this.rest(a, dtMs);
       let ox = 0, oy = 0, bob = 0;
       if (a.path.length) bob = Math.floor(this.clock / 125) % 2;
-      else {
+      else if (!a.citizen) {
         // spread actors sharing a tile: rows of 3, stepping upward
         const k = a.ty * 1000 + a.tx, i = stacks.get(k) ?? 0;
         stacks.set(k, i + 1);
