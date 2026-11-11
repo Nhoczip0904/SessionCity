@@ -1,12 +1,11 @@
 import { districtInfo } from "../shared/districts.js";
-import type { Delta, Employee, EmployeeDetail, SessionDetail, Session, ToolStep, TokenCounts } from "../shared/types.js";
+import type { ChatLine, Delta, Employee, EmployeeDetail, SessionDetail, Session, ToolStep, TokenCounts } from "../shared/types.js";
 
 export type Kind = "session" | "employee";
 export type Detail = SessionDetail | EmployeeDetail;
 
 const STATUS_LABEL: Record<Session["status"] | Employee["status"], string> = { working: "Đang làm", waiting: "Chờ bạn", idle: "Nghỉ", done: "Xong" };
 const TRUNC_NOTE = "(đã rút gọn — xem đầy đủ trong transcript)";
-const SESSION_STEPS = 20;
 const REFETCH_MS = 1000;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, cls?: string): HTMLElementTagNameMap[K] {
@@ -45,6 +44,17 @@ function stepRows(steps: ToolStep[]): HTMLElement {
     row.style.overflowWrap = "anywhere";
     const d = s.district ? districtInfo(s.district).label : "—";
     row.textContent = `${clock(s.at)} · ${d} · ${s.name} ${s.summary}`;
+    box.append(row);
+  }
+  return box;
+}
+
+/** Mini chat: oldest at the top, like a chat window (input is newest first). */
+function chatRows(chat: ChatLine[]): HTMLElement {
+  const box = el("div", chat.length ? undefined : "—", "chat");
+  for (const l of [...chat].reverse()) {
+    const row = el("div", undefined, `chat-line ${l.role}`);
+    row.append(el("div", `${l.role === "user" ? "Bạn" : "Claude"} · ${clock(l.at)}`, "who"), el("div", l.text, "said"));
     box.append(row);
   }
   return box;
@@ -97,7 +107,7 @@ export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id
     root.append(row);
   }
 
-  root.append(heading("Hoạt động gần đây"), stepRows(d.steps.slice(0, SESSION_STEPS)));
+  root.append(heading("Trò chuyện"), chatRows(d.chat));
   return root;
 }
 
