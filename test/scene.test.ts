@@ -16,9 +16,10 @@ function make(f: SceneDeps["fetchSession"] = async (id) => detail(id)) {
   const fetchSession = vi.fn(f);
   const draw = vi.fn((_p: unknown, _d: unknown, _e: boolean) => new Container());
   const onChange = vi.fn();
-  const scene = new Scene({ mount, draw, fetchSession, onChange });
+  const key = vi.fn((_p: unknown, _d: unknown, _e: boolean): string => String(Math.random()));
+  const scene = new Scene({ mount, draw, key, fetchSession, onChange });
   scenes.push(scene);
-  return { scene, mount, draw, onChange, fetchSession };
+  return { scene, mount, draw, key, onChange, fetchSession };
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -29,6 +30,21 @@ afterEach(() => {
 });
 
 describe("Scene", () => {
+  it("redraw with an unchanged key keeps the room; a new key or place rebuilds", () => {
+    const { scene, mount, draw, key } = make();
+    key.mockReturnValue("a");
+    scene.enter({ kind: "room", district: "library" });
+    const room = mount.children[0];
+    scene.redraw();
+    scene.redraw();
+    expect(draw).toHaveBeenCalledTimes(1);
+    expect(mount.children[0]).toBe(room);
+    key.mockReturnValue("b");
+    scene.redraw();
+    expect(draw).toHaveBeenCalledTimes(2);
+    scene.enter({ kind: "room", district: "library" });
+    expect(draw).toHaveBeenCalledTimes(3);
+  });
   it("enter room draws once, exit destroys it", () => {
     const { scene, mount, draw, onChange } = make();
     scene.enter({ kind: "room", district: "library" });

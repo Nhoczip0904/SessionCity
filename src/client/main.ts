@@ -5,7 +5,7 @@ import { TILE, buildCity } from "./city.js";
 import { createHud } from "./hud.js";
 import { renderLaunchDialog, showDialog, showRules, type ExploreState, type LaunchOpts } from "./launcher.js";
 import { connect } from "./net.js";
-import { ROOM_COLS, ROOM_ROWS, DEFAULT_THEME, OFFICE_THEME, ROOM_THEMES, deskSpots, fileRows, officeLayout, roomOccupants, tokenRows, type Furniture } from "./rooms.js";
+import { ROOM_COLS, ROOM_ROWS, DEFAULT_THEME, OFFICE_THEME, ROOM_THEMES, deskSpots, fileRows, officeLayout, roomOccupants, tokenRows, type Furniture, type RoomTheme } from "./rooms.js";
 import { drawRoom, type Seat } from "./roomDraw.js";
 import { Scene, type Place } from "./scene.js";
 import { renderFilesDialog, renderShelfDialog, renderTokenDialog } from "./shelfDialog.js";
@@ -131,7 +131,7 @@ async function main() {
     showDialog(renderLaunchDialog(folders, (o) => send("POST", "/api/launch", o).then((r) => (typeof r === "string" ? r : null)), preset || undefined));
   };
   const shelfGet = async <T,>(id: string, item?: string): Promise<T> => {
-    const res = await fetch(`/api/session/${encodeURIComponent(id)}/shelf${item ? `/${item}` : ""}?token=${encodeURIComponent(token)}`);
+    const res = await fetch(`/api/session/${encodeURIComponent(id)}/shelf${item ? `/${encodeURIComponent(item)}` : ""}?token=${encodeURIComponent(token)}`);
     if (!res.ok) throw new Error(String(res.status));
     return (await res.json()) as T;
   };
@@ -144,34 +144,43 @@ async function main() {
     else if (f === "map") scene.enter({ kind: "room", district: d.district });
     else showDialog(renderShelfDialog(() => shelfGet<Shelf>(d.id), (item) => shelfGet(d.id, item)));
   };
-  const draw = (place: Exclude<Place, { kind: "city" }>, detail: SessionDetail | null, error: boolean) => {
-    const seat = (at: { x: number; y: number }, kind: "session" | "employee", id: string, label: string, badge: string, done: boolean, big?: boolean): Seat =>
-      ({ at, big, fig: actors.portrait(kind, id), label, badge, done, onPick: () => onPick(kind, id) });
-    const seats: Seat[] = [];
-    let board: string[], note: string | null = null, theme = OFFICE_THEME;
+  type Spec = { seats: { at: { x: number; y: number }; kind: "session" | "employee"; id: string; label: string; badge: string; done: boolean; big?: boolean }[]; board: string[]; note: string | null; theme: RoomTheme };
+  const spec = (place: Exclude<Place, { kind: "city" }>, detail: SessionDetail | null, error: boolean): Spec => {
+    const seats: Spec["seats"] = [];
     if (place.kind === "room") {
       const info = districtInfo(place.district);
       const { people, extra } = roomOccupants(place.district, [...sessions.values()], [...employees.values()]);
       const spots = deskSpots(people.length);
-      people.forEach((o, i) => seats.push(seat(spots[i], o.kind, o.id, o.name, o.badge, o.done)));
-      board = [info.label, info.sign, info.description, info.examples.join(", ")];
-      note = people.length ? (extra ? `+${extra}` : null) : "Chưa ai làm ở đây";
-      theme = ROOM_THEMES[place.district] ?? DEFAULT_THEME;
-    } else {
-      const s = detail ?? sessions.get(place.sessionId);
-      if (s) seats.push(seat({ x: 6, y: 6 }, "session", s.id, s.project, s.status === "waiting" ? "!" : s.status === "idle" ? "z" : "", false, true));
-      const lay = detail ? officeLayout(detail) : null;
-      const spots = deskSpots(lay?.staff.length ?? 0);
-      lay?.staff.forEach((e, i) => seats.push(seat(spots[i], "employee", e.id, e.name, "", e.done)));
-      board = lay?.board ?? [s?.title ?? s?.project ?? "—"];
-      const notes = [error ? "Không tải được, đang thử lại" : "", lay?.extra ? `+${lay.extra}` : ""].filter(Boolean);
-      note = notes.length ? notes.join(" · ") : null;
+      people.forEach((o, i) => seats.push({ at: spots[i], kind: o.kind, id: o.id, label: o.name, badge: o.badge, done: o.done }));
+      return {
+        seats,
+        board: [info.label, info.sign, info.description, info.examples.join(", ")],
+        note: people.length ? (extra ? `+${extra}` : null) : "Chưa ai làm ở đây",
+        theme: ROOM_THEMES[place.district] ?? DEFAULT_THEME,
+      };
     }
-    return drawRoom(sheets, theme, seats, board, note, (f) => furniture(f, detail));
+    const s = detail ?? sessions.get(place.sessionId);
+    if (s) seats.push({ at: { x: 7, y: 3 }, kind: "session", id: s.id, label: s.project, badge: s.status === "waiting" ? "!" : s.status === "idle" ? "z" : "", done: false, big: true });
+    const lay = detail ? officeLayout(detail) : null;
+    const spots = deskSpots(lay?.staff.length ?? 0);
+    lay?.staff.forEach((e, i) => seats.push({ at: spots[i], kind: "employee", id: e.id, label: e.name, badge: "", done: e.done }));
+    const notes = [error ? "Không tải được, đang thử lại" : "", lay?.extra ? `+${lay.extra}` : ""].filter(Boolean);
+    return { seats, board: lay?.board ?? [s?.title ?? s?.project ?? "—"], note: notes.length ? notes.join(" · ") : null, theme: OFFICE_THEME };
+  };
+  const draw = (place: Exclude<Place, { kind: "city" }>, detail: SessionDetail | null, error: boolean) => {
+    const v = spec(place, detail, error);
+    const seats: Seat[] = v.seats.map((x) => ({ at: x.at, big: x.big, fig: actors.portrait(x.kind, x.id), label: x.label, badge: x.badge, done: x.done, onPick: () => onPick(x.kind, x.id) }));
+    return drawRoom(sheets, v.theme, seats, v.board, v.note, (f) => furniture(f, detail));
+  };
+  // furniture dialogs read tokens/cwd/district from the detail captured at draw time, so they belong in the key
+  const key = (place: Exclude<Place, { kind: "city" }>, detail: SessionDetail | null, error: boolean) => {
+    const { theme: _t, ...v } = spec(place, detail, error);
+    return JSON.stringify([place, v, detail && [detail.tokens, detail.cwd, detail.district]]);
   };
   const scene = new Scene({
     mount: roomLayer,
     draw,
+    key,
     fetchSession: (id) => fetchDetail("session", id) as Promise<SessionDetail | "gone">,
     onChange: (p) => {
       const inside = p.kind !== "city";
