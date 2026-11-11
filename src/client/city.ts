@@ -12,26 +12,29 @@ export const ROAD_ROWS = [2, 3, 15, 16, 28, 29];
 export const ROAD_COLS = [2, 3, 15, 16, 31, 32, 44, 45];
 const isRoad = (x: number, y: number) =>
   (ROAD_ROWS.includes(y) && x >= 2 && x <= 45) || (ROAD_COLS.includes(x) && y >= 2 && y <= 29);
+// footpaths between the two building rows of a block: the upper row's doors open onto them
+const PATH_ROWS = [9, 22];
+const isPath = (x: number, y: number) => PATH_ROWS.includes(y) && x >= 4 && x <= 43 && !isRoad(x, y);
 
 type Style = "ridge" | "tiles" | "flat";
 interface Plot { id: District; x: number; y: number; w: number; h: number; up: boolean; roof: number; wall: number; style: Style }
-// up = front (door) faces the road above, else the road below
+// up = front (door) faces up; every building faces down now, the upper row of a block onto a footpath
 const PLOTS: Plot[] = [
-  { id: "library", x: 5, y: 4, w: 9, h: 5, up: true, roof: 0x8b4a3c, wall: 0xd9c3a0, style: "tiles" },
+  { id: "library", x: 5, y: 4, w: 9, h: 5, up: false, roof: 0x8b4a3c, wall: 0xd9c3a0, style: "tiles" },
   { id: "design", x: 5, y: 10, w: 9, h: 5, up: false, roof: 0x3f7fbf, wall: 0xa9d2f0, style: "flat" },
-  { id: "database", x: 17, y: 4, w: 6, h: 5, up: true, roof: 0x5d6178, wall: 0xb0b4c8, style: "flat" },
-  { id: "lab", x: 25, y: 4, w: 6, h: 5, up: true, roof: 0xdedee8, wall: 0x9fd8b0, style: "flat" },
+  { id: "database", x: 17, y: 4, w: 6, h: 5, up: false, roof: 0x5d6178, wall: 0xb0b4c8, style: "flat" },
+  { id: "lab", x: 25, y: 4, w: 6, h: 5, up: false, roof: 0xdedee8, wall: 0x9fd8b0, style: "flat" },
   { id: "townhall", x: 18, y: 10, w: 12, h: 5, up: false, roof: 0xd8b04a, wall: 0xf0e2c0, style: "ridge" },
-  { id: "review", x: 34, y: 4, w: 9, h: 5, up: true, roof: 0x8e5bb5, wall: 0xdccbe8, style: "tiles" },
+  { id: "review", x: 34, y: 4, w: 9, h: 5, up: false, roof: 0x8e5bb5, wall: 0xdccbe8, style: "tiles" },
   { id: "factory", x: 34, y: 10, w: 9, h: 5, up: false, roof: 0x7a6a58, wall: 0xb8a890, style: "flat" },
-  { id: "watchtower", x: 5, y: 17, w: 9, h: 5, up: true, roof: 0x5d6e5a, wall: 0xa8b0a0, style: "flat" },
+  { id: "watchtower", x: 5, y: 17, w: 9, h: 5, up: false, roof: 0x5d6e5a, wall: 0xa8b0a0, style: "flat" },
   { id: "home", x: 5, y: 23, w: 9, h: 5, up: false, roof: 0xc96b4b, wall: 0xf2d8b8, style: "ridge" },
-  { id: "airport", x: 34, y: 17, w: 9, h: 5, up: true, roof: 0x8f969c, wall: 0xc8ccd0, style: "flat" },
+  { id: "airport", x: 34, y: 17, w: 9, h: 5, up: false, roof: 0x8f969c, wall: 0xc8ccd0, style: "flat" },
   { id: "site", x: 34, y: 23, w: 9, h: 5, up: false, roof: 0xb8874a, wall: 0xe0b060, style: "flat" },
 ];
-// HQ row: 7 two-tile houses facing road row 16, 7 facing road row 28
+// HQ: 7 two-tile houses facing the footpath on row 22, 7 facing road row 28
 const HQ: { x: number; y: number; up: boolean }[] = [];
-for (let i = 0; i < 7; i++) HQ.push({ x: 17 + 2 * i, y: 17, up: true });
+for (let i = 0; i < 7; i++) HQ.push({ x: 17 + 2 * i, y: 18, up: false });
 for (let i = 0; i < 7; i++) HQ.push({ x: 17 + 2 * i, y: 24, up: false });
 
 const door = (x: number, y: number, h: number, up: boolean): Pt => ({ x, y: up ? y - 1 : y + h });
@@ -41,12 +44,12 @@ const LABEL_STYLE = { fontFamily: FONT, fontSize: 8, fill: 0xffffff, stroke: { c
 const SIGN_STYLE = { fontFamily: FONT, fontSize: 7, fill: 0xf4ecd0 };
 
 export function buildCity(sheets: Sheets | null) {
-  const walkable = Array.from({ length: ROWS }, (_, y) => Array.from({ length: COLS }, (_, x) => isRoad(x, y)));
+  const walkable = Array.from({ length: ROWS }, (_, y) => Array.from({ length: COLS }, (_, x) => isRoad(x, y) || isPath(x, y)));
   const doors = {} as Record<District, Pt>;
   for (const p of PLOTS) doors[p.id] = door(p.x + (p.w >> 1), p.y, p.h, p.up);
   const hqDoors = HQ.map((h) => door(h.x, h.y, 4, h.up));
   for (const d of [...Object.values(doors), ...hqDoors]) {
-    if (!walkable[d.y][d.x]) throw new Error(`door ${d.x},${d.y} is not on a road`);
+    if (!walkable[d.y][d.x]) throw new Error(`door ${d.x},${d.y} is not on a road or path`);
   }
   const built = new Set<number>();
   const mark = (x: number, y: number, w: number, h: number) => {
@@ -60,7 +63,7 @@ export function buildCity(sheets: Sheets | null) {
 
   function draw(): Container {
     const root = sheets
-      ? drawTiles(sheets, { cols: COLS, rows: ROWS, isRoad, roadRows: ROAD_ROWS, roadCols: ROAD_COLS, plots: PLOTS, hq: HQ, built, hash })
+      ? drawTiles(sheets, { cols: COLS, rows: ROWS, isRoad, isPath, roadRows: ROAD_ROWS, roadCols: ROAD_COLS, plots: PLOTS, hq: HQ, built, hash })
       : drawProcedural();
     for (const p of PLOTS) {
       // tiles: centre of the roof (the facade takes the 2 road-side rows); procedural: centre of the plot
@@ -69,7 +72,7 @@ export function buildCity(sheets: Sheets | null) {
     }
     const hqLabel = new Text({ text: "Trụ sở", style: LABEL_STYLE, resolution: 2 });
     hqLabel.anchor.set(0.5);
-    hqLabel.position.set(24 * TILE, 22.5 * TILE);
+    hqLabel.position.set(24 * TILE, 23.5 * TILE);
     root.addChild(hqLabel);
     return root;
   }

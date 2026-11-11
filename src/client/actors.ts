@@ -334,8 +334,7 @@ export class Actors {
       if (extra > 0 && !t) {
         t = new Text({ text: "", ...LIVE_TEXT });
         t.anchor.set(0.5);
-        // shortcut: assumes the 2×4 HQ house sits right below an up-facing door or right above a down-facing one
-        const houseTop = this.city.walkable[hq.y + 1]?.[hq.x] ? hq.y - 4 : hq.y + 1;
+        const houseTop = hq.y - 4; // every 2×4 HQ house sits right above its door
         t.position.set(hq.x * TILE + TILE, houseTop * TILE + 2 * TILE);
         t.zIndex = 1e5;
         this.layer.addChild(t);

@@ -9,6 +9,7 @@ export interface MapLayout {
   cols: number;
   rows: number;
   isRoad(x: number, y: number): boolean;
+  isPath(x: number, y: number): boolean;
   roadRows: number[];
   roadCols: number[];
   plots: { id: District; x: number; y: number; w: number; h: number; up: boolean }[];
@@ -39,6 +40,10 @@ export function drawTiles(s: Sheets, m: MapLayout): Container {
     for (let x = 0; x < cols; x++) {
       if (isRoad(x, y)) {
         put(roadTile(x, y), x, y);
+        continue;
+      }
+      if (m.isPath(x, y)) {
+        put(K.SIDEWALK, x, y);
         continue;
       }
       const n = isRoad(x, y - 1), so = isRoad(x, y + 1), w = isRoad(x - 1, y), e = isRoad(x + 1, y);
