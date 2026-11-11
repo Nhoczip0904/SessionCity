@@ -31,6 +31,7 @@ export class Store {
   private pending = new Map<string, Pending>(); // toolUseId -> spawn info
   private seen = new Map<string, Set<string>>(); // sessionId -> counted messageIds
   private mayorSteps = new Map<string, ToolStep[]>(); // sessionId -> steps, oldest first
+  private skills = new Map<string, Set<string>>(); // sessionId -> Skill tool names used
   private lastPrompt = new Map<string, string>();
   private extra = new Map<string, Extra>(); // agentId -> detail-only data
   private dirtyS = new Set<string>();
@@ -106,6 +107,11 @@ export class Store {
         s.status = "working"; s.district = "townhall";
         break;
       case "tool": {
+        const sk = e.name === "Skill" ? (e.input as { skill?: unknown } | null)?.skill : undefined;
+        if (typeof sk === "string" && sk) {
+          const set = this.skills.get(s.id) ?? new Set<string>();
+          this.skills.set(s.id, set.add(sk));
+        }
         const step: ToolStep = { at: e.at, name: e.name, summary: summarize(e.name, e.input), district: e.district };
         let steps: ToolStep[];
         if (e.agentId) {
@@ -230,6 +236,10 @@ export class Store {
       sessions: structuredClone([...this.sessions.values()]),
       employees: structuredClone([...this.employees.values()]),
     };
+  }
+
+  skillsUsed(sessionId: string): string[] {
+    return [...(this.skills.get(sessionId) ?? [])];
   }
 
   detailSession(id: string): SessionDetail | undefined {

@@ -391,4 +391,11 @@ describe("Store", () => {
       for (const k of ["steps", "report", "models", "lastPrompt"]) expect(j).not.toContain(k);
     });
   });
+  it("records skill names used by the session", () => {
+    const s = mk();
+    const sk = (skill: string, extra: object = {}) => tool(null, { name: "Skill", input: { skill }, ...extra });
+    s.apply(sk("tdd")); s.apply(sk("tdd")); s.apply(sk("plug:x", { agentId: "a1" })); s.apply(tool(null, { name: "Skill", input: {} }));
+    expect(s.skillsUsed("s1").sort()).toEqual(["plug:x", "tdd"]);
+    expect(s.skillsUsed("nope")).toEqual([]);
+  });
 });

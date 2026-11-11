@@ -22,7 +22,7 @@ beforeAll(async () => {
   await writeFile(join(dir, "client", "assets", "app.js"), "1");
   await writeFile(join(dir, "secret.txt"), "nope");
   store = new Store();
-  srv = await startServer({ port: 0, token: TOKEN, store, clientDir: join(dir, "client"), claude: null, agentsDir: join(dir, "agents"), launcher: async () => {} });
+  srv = await startServer({ port: 0, token: TOKEN, store, clientDir: join(dir, "client"), claude: null, agentsDir: join(dir, "agents"), claudeDir: join(dir, "claude"), launcher: async () => {} });
   port = Number(new URL(srv.url).port);
 });
 afterAll(async () => {
@@ -194,6 +194,33 @@ describe("detail routes", () => {
   });
 });
 
+describe("shelf routes", () => {
+  const SID = "ses:shelf1";
+  const q = (p: string) => get(`${p}?token=${TOKEN}`);
+  beforeAll(async () => {
+    await mkdir(join(dir, "claude"), { recursive: true });
+    await writeFile(join(dir, "claude", "CLAUDE.md"), "hello shelf");
+    store.apply({ kind: "meta", sessionId: SID, at: new Date().toISOString(), cwd: join(dir, "proj") });
+  });
+
+  it("401 without token, 404 unknown session", async () => {
+    expect((await get(`/api/session/${encodeURIComponent(SID)}/shelf`)).status).toBe(401);
+    expect((await q("/api/session/nope/shelf")).status).toBe(404);
+  });
+
+  it("lists files and reads a listed id; bad or unknown ids -> 404", async () => {
+    const base = `/api/session/${encodeURIComponent(SID)}/shelf`;
+    const list = JSON.parse((await q(base)).body);
+    const user = list.files.find((f: any) => f.scope === "user");
+    expect(user).toMatchObject({ size: 11 });
+    const item = await q(`${base}/${user.id}`);
+    expect(item.status).toBe(200);
+    expect(JSON.parse(item.body)).toEqual({ text: "hello shelf", truncated: false });
+    expect((await q(`${base}/..%2Fsecret.txt`)).status).toBe(404);
+    expect((await q(`${base}/${"0".repeat(16)}`)).status).toBe(404);
+  });
+});
+
 describe("launch + explore routes", () => {
   let d: string;
   let st: Store;
@@ -211,7 +238,7 @@ describe("launch + explore routes", () => {
     launcher = okLauncher;
     sv = await startServer({
       port: 0, token: TOKEN, store: st, clientDir: d,
-      get claude() { return claude; }, agentsDir: join(d, "agents"), launcher: (o) => launcher(o),
+      get claude() { return claude; }, agentsDir: join(d, "agents"), claudeDir: join(d, "claude"), launcher: (o) => launcher(o),
     });
     p = Number(new URL(sv.url).port);
   });

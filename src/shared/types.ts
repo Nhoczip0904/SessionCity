@@ -50,3 +50,7 @@ export type Event =
 export interface State { sessions: Session[]; employees: Employee[] }
 /** Changed items only; `removed` = ids of hidden sessions/employees. */
 export interface Delta { sessions: Session[]; employees: Employee[]; removed: string[] }
+
+export interface ShelfFile { id: string; scope: "user" | "project" | "local"; path: string; size: number }
+export interface ShelfSkill { id: string; scope: "user" | "project" | "plugin"; plugin?: string; name: string; description: string; used: boolean }
+export interface Shelf { files: ShelfFile[]; skills: ShelfSkill[] }
