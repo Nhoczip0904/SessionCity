@@ -1,10 +1,14 @@
 import { Application, Container, Rectangle, Sprite, Texture, TextureStyle, type Graphics } from "pixi.js";
-import type { Employee, Session } from "../shared/types.js";
+import type { Employee, Session, SessionDetail, Shelf } from "../shared/types.js";
 import { Actors } from "./actors.js";
 import { TILE, buildCity } from "./city.js";
 import { createHud } from "./hud.js";
 import { renderLaunchDialog, showDialog, showRules, type ExploreState, type LaunchOpts } from "./launcher.js";
 import { connect } from "./net.js";
+import { ROOM_COLS, ROOM_ROWS, DEFAULT_THEME, OFFICE_THEME, ROOM_THEMES, deskSpots, fileRows, officeLayout, roomOccupants, tokenRows, type Furniture } from "./rooms.js";
+import { drawRoom, type Seat } from "./roomDraw.js";
+import { Scene, type Place } from "./scene.js";
+import { renderFilesDialog, renderShelfDialog, renderTokenDialog } from "./shelfDialog.js";
 import { Panel, type Detail, type Kind } from "./panel.js";
 import { loadSheets } from "./tiles.js";
 import { Tooltip, plotAt, presentAt, renderDistrictCard } from "./tooltip.js";
@@ -56,14 +60,19 @@ async function main() {
   world.addChild(new Sprite(mapTex), cars);
   if (sheets) world.addChild(lightOverlay(W, H));
   world.addChild(layer);
-  app.stage.addChild(world);
+  const roomLayer = new Container();
+  app.stage.addChild(world, roomLayer);
 
-  const layout = () => {
+  const fitTo = (c: Container, w: number, h: number) => {
     const sw = app.screen.width, sh = app.screen.height - HUD_H;
-    const fit = Math.min(sw / W, sh / H);
+    const fit = Math.min(sw / w, sh / h);
     const s = fit >= 2 ? Math.floor(fit) : fit; // integer scale when ≥ 2× fits, else fill the window
-    world.scale.set(s);
-    world.position.set(Math.round((sw - W * s) / 2), Math.round(HUD_H + (sh - H * s) / 2));
+    c.scale.set(s);
+    c.position.set(Math.round((sw - w * s) / 2), Math.round(HUD_H + (sh - h * s) / 2));
+  };
+  const layout = () => {
+    fitTo(world, W, H);
+    fitTo(roomLayer, ROOM_COLS * TILE, ROOM_ROWS * TILE);
   };
   layout();
   app.renderer.on("resize", layout);
@@ -104,8 +113,12 @@ async function main() {
     tip.hide();
     void panel.open(kind, id);
   };
-  const actors = new Actors(city, layer, bake, sheets, onPick);
-  const traffic = new Traffic(city, cars, sheets);
+  const onEnter = (p: Place) => {
+    tip.hide();
+    scene.enter(p);
+  };
+  const actors = new Actors(city, layer, bake, sheets, onPick, onEnter);
+  const traffic = new Traffic(cars, sheets);
   app.ticker.add((t) => {
     actors.update(t.deltaMS);
     traffic.update(t.deltaMS);
@@ -113,11 +126,65 @@ async function main() {
 
   const sessions = new Map<string, Session>();
   const employees = new Map<string, Employee>();
-  const hud = createHud({
-    launch: () => {
-      const folders = [...new Set([...sessions.values()].map((s) => s.cwd).filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
-      showDialog(renderLaunchDialog(folders, (o) => send("POST", "/api/launch", o).then((r) => (typeof r === "string" ? r : null))));
+  const openLaunch = (preset?: string) => {
+    const folders = [...new Set([...sessions.values()].map((s) => s.cwd).filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
+    showDialog(renderLaunchDialog(folders, (o) => send("POST", "/api/launch", o).then((r) => (typeof r === "string" ? r : null)), preset || undefined));
+  };
+  const shelfGet = async <T,>(id: string, item?: string): Promise<T> => {
+    const res = await fetch(`/api/session/${encodeURIComponent(id)}/shelf${item ? `/${item}` : ""}?token=${encodeURIComponent(token)}`);
+    if (!res.ok) throw new Error(String(res.status));
+    return (await res.json()) as T;
+  };
+
+  const furniture = (f: Furniture, d: SessionDetail | null) => {
+    if (!d) return;
+    if (f === "safe") showDialog(renderTokenDialog(tokenRows(d)));
+    else if (f === "cabinet") showDialog(renderFilesDialog(fileRows(d), (id) => void panel.open("employee", id)));
+    else if (f === "phone") openLaunch(d.cwd);
+    else if (f === "map") scene.enter({ kind: "room", district: d.district });
+    else showDialog(renderShelfDialog(() => shelfGet<Shelf>(d.id), (item) => shelfGet(d.id, item)));
+  };
+  const draw = (place: Exclude<Place, { kind: "city" }>, detail: SessionDetail | null, error: boolean) => {
+    const seat = (at: { x: number; y: number }, kind: "session" | "employee", id: string, label: string, badge: string, done: boolean, big?: boolean): Seat =>
+      ({ at, big, fig: actors.portrait(kind, id), label, badge, done, onPick: () => onPick(kind, id) });
+    const seats: Seat[] = [];
+    let board: string[], note: string | null = null, theme = OFFICE_THEME;
+    if (place.kind === "room") {
+      const info = districtInfo(place.district);
+      const { people, extra } = roomOccupants(place.district, [...sessions.values()], [...employees.values()]);
+      const spots = deskSpots(people.length);
+      people.forEach((o, i) => seats.push(seat(spots[i], o.kind, o.id, o.name, o.badge, o.done)));
+      board = [info.label, info.sign, info.description, info.examples.join(", ")];
+      note = people.length ? (extra ? `+${extra}` : null) : "Chưa ai làm ở đây";
+      theme = ROOM_THEMES[place.district] ?? DEFAULT_THEME;
+    } else {
+      const s = detail ?? sessions.get(place.sessionId);
+      if (s) seats.push(seat({ x: 6, y: 6 }, "session", s.id, s.project, s.status === "waiting" ? "!" : s.status === "idle" ? "z" : "", false, true));
+      const lay = detail ? officeLayout(detail) : null;
+      const spots = deskSpots(lay?.staff.length ?? 0);
+      lay?.staff.forEach((e, i) => seats.push(seat(spots[i], "employee", e.id, e.name, "", e.done)));
+      board = lay?.board ?? [s?.title ?? s?.project ?? "—"];
+      const notes = [error ? "Không tải được, đang thử lại" : "", lay?.extra ? `+${lay.extra}` : ""].filter(Boolean);
+      note = notes.length ? notes.join(" · ") : null;
+    }
+    return drawRoom(sheets, theme, seats, board, note, (f) => furniture(f, detail));
+  };
+  const scene = new Scene({
+    mount: roomLayer,
+    draw,
+    fetchSession: (id) => fetchDetail("session", id) as Promise<SessionDetail | "gone">,
+    onChange: (p) => {
+      const inside = p.kind !== "city";
+      world.visible = !inside;
+      tip.hide();
+      hud.setPlace(
+        p.kind === "room" ? districtInfo(p.district).label : p.kind === "office" ? (sessions.get(p.sessionId)?.project ?? "") : null,
+        () => scene.exit(),
+      );
     },
+  });
+  const hud = createHud({
+    launch: () => openLaunch(),
     rules: () =>
       void showRules(
         () => send("GET", "/api/agents/explore").then((r) => (typeof r === "string" ? r : r.state)),
@@ -129,12 +196,13 @@ async function main() {
     actors.sync(state);
     hud.setCounts(state.sessions);
     hud.setHint(state.sessions.length ? null : NO_SESSIONS);
+    scene.redraw();
   };
 
   // hover card: pointer → map pixels → plot
   let pointer: PointerEvent | null = null;
   const hover = () => {
-    if (!pointer) return tip.hide();
+    if (!pointer || scene.place.kind !== "city") return tip.hide();
     const mx = (pointer.clientX - world.x) / world.scale.x, my = (pointer.clientY - world.y) / world.scale.y;
     const plot = plotAt(city.plots, mx, my);
     if (!plot) return tip.hide();
@@ -171,6 +239,7 @@ async function main() {
       }
       apply();
       panel.onDelta(d);
+      scene.onDelta(d);
     },
     (c) => {
       hud.setConn(c);

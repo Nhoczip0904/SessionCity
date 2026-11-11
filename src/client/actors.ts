@@ -1,5 +1,6 @@
 import { Container, Graphics, Rectangle, Sprite, Text, type Texture } from "pixi.js";
 import type { District, Employee, Session, State } from "../shared/types.js";
+import type { Place } from "./scene.js";
 import { TILE, type buildCity } from "./city.js";
 import { findPath, type Pt } from "./path.js";
 import { randomRoadTile, wanderTarget } from "./roads.js";
@@ -86,6 +87,8 @@ export class Actors {
   private textures = new Map<string, Texture>();
   private hqOwner: (string | undefined)[] = [];
   private hqHits: Container[];
+  private plotHits: Container[];
+  private lastStaff = new Map<string, { type: string; sessionId: string }>();
   private citizens: Actor[] = [];
   private clock = 0;
 
@@ -95,17 +98,29 @@ export class Actors {
     private bake: (g: Graphics) => Texture,
     private sheets: Sheets | null,
     private onPick: (kind: PickKind, id: string) => void,
+    private onEnter: (p: Place) => void,
     private opts: { motion: boolean; rand: Rand } = { motion: !matchMedia("(prefers-reduced-motion: reduce)").matches, rand: Math.random },
   ) {
     layer.sortableChildren = true;
-    // HQ houses: clicking one picks the session living there
+    // HQ houses: clicking one enters the office of the session living there
     this.hqHits = city.hqPlots.map((r, i) => {
       const h = new Container();
       h.hitArea = new Rectangle(r.x, r.y, r.w, r.h);
       h.cursor = "pointer";
       h.eventMode = "none";
       h.zIndex = -1;
-      h.on("pointertap", () => { const id = this.hqOwner[i]; if (id) this.onPick("session", id); });
+      h.on("pointertap", () => { const id = this.hqOwner[i]; if (id) this.onEnter({ kind: "office", sessionId: id }); });
+      layer.addChild(h);
+      return h;
+    });
+    // district buildings: clicking one enters its room
+    this.plotHits = city.plots.map((p) => {
+      const h = new Container();
+      h.hitArea = new Rectangle(p.px.x, p.px.y, p.px.w, p.px.h);
+      h.cursor = "pointer";
+      h.eventMode = "static";
+      h.zIndex = -1;
+      h.on("pointertap", () => this.onEnter({ kind: "room", district: p.id }));
       layer.addChild(h);
       return h;
     });
@@ -207,7 +222,18 @@ export class Actors {
     return this.city.doors[d] ?? this.city.doors.townhall;
   }
 
+  /** The same figure as the street actor (fresh instance, feet at the origin), or null when unknown. */
+  portrait(kind: PickKind, id: string): Container | null {
+    if (kind === "session") {
+      const slot = this.slots.get(id);
+      return slot === undefined ? null : this.figure(slot, K.OUTFIT_MAYOR, false);
+    }
+    const e = this.lastStaff.get(id), slot = e && this.slots.get(e.sessionId);
+    return e && slot !== undefined ? this.figure(slot, outfitFor(e.type), true) : null;
+  }
+
   sync(state: State): void {
+    this.lastStaff = new Map(state.employees.map((e) => [e.id, { type: e.type, sessionId: e.sessionId }]));
     const live = new Set(state.sessions.map((s) => s.id));
     this.drop(this.mayors, live);
     for (const id of this.slots.keys()) if (!live.has(id)) this.slots.delete(id);

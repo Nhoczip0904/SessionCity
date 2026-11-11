@@ -1,9 +1,8 @@
 import { Container, Sprite } from "pixi.js";
-import { ROAD_COLS, ROAD_ROWS, TILE, type buildCity } from "./city.js";
+import { ROAD_COLS, ROAD_ROWS, TILE } from "./city.js";
 import { carPos, centreLines, roadGraph, spawnCar, stepCar, type CarState, type RoadGraph } from "./roads.js";
 import { CARS, CARS_DOWN, CARS_UP, type Sheets } from "./tiles.js";
 
-type City = ReturnType<typeof buildCity>;
 const COUNT = 6;
 
 interface Car { root: Container; side: Container; up: Container; down: Container }
@@ -25,7 +24,7 @@ export class Traffic {
   private cars: { car: Car; state: CarState }[] = [];
   private graph: RoadGraph;
 
-  constructor(_city: City, layer: Container, sheets: Sheets | null, private rand: () => number = Math.random) {
+  constructor(layer: Container, sheets: Sheets | null, private rand: () => number = Math.random) {
     layer.eventMode = "none";
     // centre lines of the 2-tile roads; a car is as wide as the road, like the parked ones
     this.graph = roadGraph(centreLines(ROAD_COLS), centreLines(ROAD_ROWS));
