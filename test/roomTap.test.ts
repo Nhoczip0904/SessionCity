@@ -28,8 +28,8 @@ describe("room taps without a preceding hover (Pixi hit testing)", () => {
     const root = new Container();
     root.addChild(drawRoom({ indoor: () => Texture.WHITE } as never, OFFICE_THEME, [{ at: { x: 7, y: 3 }, big: true, fig: null, label: "x", badge: "", done: false, onPick }], ["a", "b", "c"], "note", onFurniture));
     const b = new EventBoundary(root);
-    for (const [x, f] of [[1, "safe"], [2, "cabinet"], [3, "phone"], [5, "map"], [8, "shelf"]] as const) {
-      tap(b, x * 16 + 8, 2 * 16 + 8);
+    for (const [x, y, f] of [[0, 2, "safe"], [1, 2, "cabinet"], [3, 2, "phone"], [14, 0.4, "map"], [12, 2, "shelf"]] as const) {
+      tap(b, x * 16 + 8, y * 16 + 8);
       expect(onFurniture).toHaveBeenLastCalledWith(f);
     }
     tap(b, 8 * 16 + 8, 3 * 16 + 8);
