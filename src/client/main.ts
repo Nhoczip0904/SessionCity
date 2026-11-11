@@ -152,7 +152,7 @@ async function main() {
     else if (f === "map") scene.enter({ kind: "room", district: d.district });
     else showDialog(renderShelfDialog(() => shelfGet<Shelf>(d.id), (item) => shelfGet(d.id, item)));
   };
-  type Spec = { seats: { at: { x: number; y: number }; kind: "session" | "employee"; id: string; label: string; badge: string; done: boolean; big?: boolean }[]; board: string[]; note: string | null; theme: RoomTheme };
+  type Spec = { seats: { at: { x: number; y: number; back?: boolean }; kind: "session" | "employee"; id: string; label: string; badge: string; done: boolean; big?: boolean }[]; board: string[]; note: string | null; theme: RoomTheme };
   const spec = (place: Exclude<Place, { kind: "city" }>, detail: SessionDetail | null, error: boolean): Spec => {
     const seats: Spec["seats"] = [];
     if (place.kind === "room") {
@@ -184,7 +184,7 @@ async function main() {
       const staff = v.seats.filter((x) => x.kind === "employee");
       const boss = { x: 7.5 * TILE, y: 3 * TILE + 10 };
       if (motion) for (const h of handoffs(seen?.id === place.sessionId ? seen.staff : null, staff)) {
-        const at = staff.find((x) => x.id === h.id)!.at, desk = { x: (at.x + 1) * TILE, y: at.y * TILE + 10 };
+        const at = staff.find((x) => x.id === h.id)!.at, desk = { x: (at.x + 1) * TILE, y: at.y * TILE + (at.back ? -6 : 10) };
         flyPaper(papers, h.kind === "assign" ? boss : desk, h.kind === "assign" ? desk : boss, h.kind);
       }
       seen = { id: place.sessionId, staff: new Map(staff.map((x) => [x.id, x.done])) };

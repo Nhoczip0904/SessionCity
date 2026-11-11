@@ -35,9 +35,12 @@ describe("deskSpots", () => {
     }
     expect(deskSpots(3)).toHaveLength(3);
   });
-  it("office: two pods of side-by-side desks with an aisle down the middle", () => {
-    const xs = new Set(deskSpots(12).map((p) => p.x));
-    expect([...xs].sort((a, b) => a - b)).toEqual([2, 4, 10, 12]);
+  it("office: two pods of 3 desks facing 3 desks, aisle to the door in between", () => {
+    const s = deskSpots(12);
+    expect([...new Set(s.map((p) => p.x))].sort((a, b) => a - b)).toEqual([1, 3, 5, 9, 11, 13]);
+    expect(s.filter((p) => !p.back).every((p) => p.y === 6)).toBe(true); // facing down, desk on row 7
+    expect(s.filter((p) => p.back).map((p) => p.y)).toEqual([9, 9, 9, 9, 9, 9]); // facing up, desk on row 8
+    expect(deskSpots(6).every((p) => !p.back)).toBe(true); // the front row fills first
   });
   it("hall: one big desk, the rest are chairs", () => {
     const s = deskSpots(12, "hall");
