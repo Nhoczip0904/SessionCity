@@ -74,7 +74,8 @@ describe("shelf", () => {
       throw e;
     }
     const { skills } = await listShelf(cwd, claudeDir, []);
-    expect(skills.find((s) => s.name === "link")).toBeUndefined();
+    expect(skills.some((s) => s.id === shelfId(join(claudeDir, "skills", "link", "SKILL.md")))).toBe(false);
+    expect(skills.filter((s) => s.name === "pp")).toHaveLength(1);
   });
 
   it("reads an item and truncates at 64 KB", async () => {
@@ -88,5 +89,15 @@ describe("shelf", () => {
 
   it("unknown id → null", async () => {
     expect(await readShelfItem(cwd, claudeDir, "0".repeat(16))).toBeNull();
+  });
+
+  it("does not duplicate user items when cwd is the home dir", async () => {
+    const home = join(root, "home");
+    const { files, skills } = await listShelf(home, claudeDir, []);
+    const u = files.filter((f) => f.path === join(claudeDir, "CLAUDE.md"));
+    expect(u).toHaveLength(1);
+    expect(u[0]!.scope).toBe("user");
+    expect(new Set(skills.map((s) => s.id)).size).toBe(skills.length);
+    expect(skills.filter((s) => s.name === "zeta")).toEqual([expect.objectContaining({ scope: "user" })]);
   });
 });

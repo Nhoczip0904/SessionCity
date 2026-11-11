@@ -72,9 +72,13 @@ async function pluginRoots(claudeDir: string): Promise<{ plugin: string; path: s
 /** Paths come only from server-side discovery; the id is the only thing a client supplies. */
 async function discover(cwd: string | undefined, claudeDir: string) {
   const files: ShelfFile[] = [];
+  const seen = new Set<string>(); // first scope wins when paths overlap (e.g. cwd under home)
   const add = async (scope: ShelfFile["scope"], p: string) => {
+    if (seen.has(p)) return;
     const size = await fileSize(p);
-    if (size !== undefined) files.push({ id: shelfId(p), scope, path: p, size });
+    if (size === undefined) return;
+    seen.add(p);
+    files.push({ id: shelfId(p), scope, path: p, size });
   };
   await add("user", join(claudeDir, "CLAUDE.md"));
   if (cwd) {
@@ -92,7 +96,8 @@ async function discover(cwd: string | undefined, claudeDir: string) {
   await skillsIn(claudeDir, "user", undefined, skills);
   if (cwd) await skillsIn(join(cwd, ".claude"), "project", undefined, skills);
   for (const r of await pluginRoots(claudeDir)) await skillsIn(r.path, "plugin", r.plugin, skills);
-  return { files, skills };
+  const ids = new Set<string>();
+  return { files, skills: skills.filter((k) => !ids.has(k.id) && ids.add(k.id)) };
 }
 
 export async function listShelf(cwd: string | undefined, claudeDir: string, used: string[]): Promise<Shelf> {
