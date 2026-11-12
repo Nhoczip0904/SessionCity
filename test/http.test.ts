@@ -376,3 +376,26 @@ describe("launch + explore routes", () => {
     expect((await call("PUT", "/api/agents/explore", b, {}, false)).status).toBe(401);
   });
 });
+
+describe("PR board route", () => {
+  it("needs the token, returns the PR list, and ?fresh=1 skips the cache", async () => {
+    const calls: boolean[] = [];
+    const s = await startServer({ port: 0, token: TOKEN, store, clientDir: join(dir, "client"), claude: null, agentsDir: join(dir, "agents"), claudeDir: join(dir, "claude"), launcher: async () => {},
+      prs: async (fresh) => (calls.push(fresh), [{ repo: "r", prs: [] }]) });
+    const base = s.url.replace(/\/\?.*$/, "").replace(/\/$/, "");
+    try {
+      expect((await fetch(`${base}/api/prs`)).status).toBe(401);
+      const r = await fetch(`${base}/api/prs?token=${TOKEN}`);
+      expect(r.status).toBe(200);
+      expect(await r.json()).toEqual([{ repo: "r", prs: [] }]);
+      await fetch(`${base}/api/prs?token=${TOKEN}&fresh=1`);
+      expect(calls).toEqual([false, true]);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it("without a PR source the board is empty", async () => {
+    expect(JSON.parse((await get(`/api/prs?token=${TOKEN}`)).body)).toEqual([]);
+  });
+});

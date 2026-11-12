@@ -56,3 +56,8 @@ export interface Delta { sessions: Session[]; employees: Employee[]; removed: st
 export interface ShelfFile { id: string; scope: "user" | "project" | "local"; path: string; size: number }
 export interface ShelfSkill { id: string; scope: "user" | "project" | "plugin"; plugin?: string; name: string; description: string; used: boolean }
 export interface Shelf { files: ShelfFile[]; skills: ShelfSkill[] }
+
+/** One open pull request on the review building's board. */
+export interface PrRow { number: number; title: string; url: string | null; /** GitHub login of who opened it */ author: string | null; draft: boolean; review: "approved" | "changes" | "pending" | null; ci: "pass" | "fail" | "pending" | null }
+/** The open PRs of one repo the sessions work in; `error` when gh could not list them. */
+export interface RepoPrs { repo: string; prs: PrRow[]; error?: string }

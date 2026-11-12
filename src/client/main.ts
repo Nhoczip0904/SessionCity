@@ -1,5 +1,5 @@
-import { Application, Container, Rectangle, Sprite, Texture, TextureStyle, type Graphics } from "pixi.js";
-import type { Employee, Session, SessionDetail, Shelf } from "../shared/types.js";
+import { Application, Assets, Container, Rectangle, Sprite, Texture, TextureStyle, type Graphics } from "pixi.js";
+import type { Employee, RepoPrs, Session, SessionDetail, Shelf } from "../shared/types.js";
 import { Actors } from "./actors.js";
 import { flyRock } from "./rock.js";
 import { TILE, buildCity } from "./city.js";
@@ -9,7 +9,7 @@ import { connect } from "./net.js";
 import { ROOM_COLS, ROOM_ROWS, DEFAULT_THEME, OFFICE_THEME, ROOM_THEMES, deskSpots, fileRows, officeLayout, roomOccupants, tokenRows, type Furniture, type RoomTheme } from "./rooms.js";
 import { drawRoom, type Seat } from "./roomDraw.js";
 import { Scene, type Place } from "./scene.js";
-import { renderFilesDialog, renderShelfDialog, renderTokenDialog } from "./shelfDialog.js";
+import { renderFilesDialog, renderPrDialog, renderShelfDialog, renderTokenDialog } from "./shelfDialog.js";
 import { flyPaper, handoffs } from "./handoff.js";
 import { isChatOpen, openChat } from "./chat.js";
 import { isTerminalOpen, openTerminal } from "./term.js";
@@ -18,9 +18,12 @@ import { loadSheets } from "./tiles.js";
 import { Tooltip, plotAt, presentAt, renderDistrictCard } from "./tooltip.js";
 import { Traffic } from "./traffic.js";
 import { Ruins } from "./blast.js";
+import { Cross, photoDataUrl } from "./cross.js";
+import { AgentList } from "./agentList.js";
 import { districtInfo } from "../shared/districts.js";
 
 const HUD_H = 32;
+const NAV_W = 200; // the agent index down the left edge, when shown
 const NO_SESSIONS = "Chưa thấy phiên Claude Code nào trong ~/.claude/projects — mở Claude Code rồi quay lại.";
 const NO_TOKEN = "Thiếu token — mở đúng đường dẫn server in ra";
 
@@ -41,7 +44,35 @@ function lightOverlay(w: number, h: number): Sprite {
   return s;
 }
 
+const PLAZA_KEY = "backendcity.plaza", PHOTO_KEY = "backendcity.photo", AGENTS_KEY = "backendcity.agents";
+// localStorage can be missing or full (private window, blocked site data): the square still works, it just forgets
+const load = (k: string): string | null => {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+};
+const store = (k: string, v: string): boolean => {
+  try {
+    localStorage.setItem(k, v);
+    return true;
+  } catch {
+    return false;
+  }
+};
+const textureOf = async (url: string): Promise<Texture> => {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  return Texture.from(img);
+};
+
 async function main() {
+  // before the slow sheet load, so a hidden column does not flash
+  const navHidden = load(AGENTS_KEY) === "0";
+  document.getElementById("agents")!.hidden = navHidden;
+  document.getElementById("btn-agents")!.setAttribute("aria-pressed", String(!navHidden));
   TextureStyle.defaultOptions.scaleMode = "nearest";
   const app = new Application();
   await app.init({
@@ -62,8 +93,17 @@ async function main() {
   const world = new Container();
   const cars = new Container();
   const layer = new Container();
-  world.addChild(new Sprite(mapTex), cars);
-  if (sheets) world.addChild(lightOverlay(W, H));
+  // the square below the city can be switched off: the map is then cut off above it
+  const cityH = city.plaza.y;
+  const cityTex = new Texture({ source: mapTex.source, frame: new Rectangle(0, 0, W, cityH) });
+  const map = new Sprite(mapTex);
+  const light = lightOverlay(W, H);
+  world.addChild(map, cars);
+  if (sheets) world.addChild(light);
+  let plazaOn = load(PLAZA_KEY) !== "0";
+  const agentsOn = load(AGENTS_KEY) !== "0";
+  let navW = agentsOn ? NAV_W : 0;
+  let mapH = plazaOn ? H : cityH;
   const rubble = new Container(); // building ruins sit under people and cars
   world.addChild(rubble, layer);
   const roomLayer = new Container();
@@ -75,14 +115,14 @@ async function main() {
   const motion = !matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const fitTo = (c: Container, w: number, h: number) => {
-    const sw = app.screen.width, sh = app.screen.height - HUD_H;
+    const sw = app.screen.width - navW, sh = app.screen.height - HUD_H;
     const fit = Math.min(sw / w, sh / h);
     const s = fit >= 2 ? Math.floor(fit) : fit; // integer scale when ≥ 2× fits, else fill the window
     c.scale.set(s);
-    c.position.set(Math.round((sw - w * s) / 2), Math.round(HUD_H + (sh - h * s) / 2));
+    c.position.set(Math.round(navW + (sw - w * s) / 2), Math.round(HUD_H + (sh - h * s) / 2));
   };
   const layout = () => {
-    fitTo(world, W, H);
+    fitTo(world, W, mapH);
     fitTo(roomLayer, ROOM_COLS * TILE, ROOM_ROWS * TILE);
   };
   layout();
@@ -137,22 +177,50 @@ async function main() {
     scene.enter(p);
   };
   const actors = new Actors(city, layer, bake, sheets, onPick, onEnter);
+  // avatars: each mayor's figure from the map, drawn once into a small image
+  const avatars = new Map<string, string>();
+  const avatarOf = (id: string): string | null => {
+    const hit = avatars.get(id);
+    if (hit) return hit;
+    const fig = actors.portrait("session", id);
+    if (!fig) return null;
+    const url = (app.renderer.extract.canvas(fig) as HTMLCanvasElement).toDataURL();
+    fig.destroy({ children: true });
+    avatars.set(id, url);
+    return url;
+  };
+  const agentList = new AgentList(document.getElementById("agents")!, onPick, avatarOf);
   const traffic = new Traffic(cars, sheets);
   const ruins = new Ruins(rubble, [...city.plots.map((p) => p.px), ...city.hqPlots]);
+  // the photo is a local, git-ignored file (public/cross.png); without it the cross hangs a blank card
+  const saved = load(PHOTO_KEY);
+  const photo = (saved ? await textureOf(saved).catch(() => null) : null) ?? (await Assets.load<Texture>("/cross.png").catch(() => null));
+  const pz = city.plaza;
+  const cross = new Cross(rubble, { x: pz.x + pz.w / 2 - 32, y: pz.y + 22, w: 64, h: 114 }, photo);
   // rock mode: a see-through sheet over the map takes the clicks; stones fly from the bottom edge of the map
   const aim = new Container();
-  aim.hitArea = new Rectangle(0, 0, W, H);
+  const showPlaza = (on: boolean) => {
+    plazaOn = on;
+    mapH = on ? H : cityH;
+    map.texture = on ? mapTex : cityTex;
+    light.height = mapH;
+    aim.hitArea = new Rectangle(0, 0, W, mapH);
+    cross.show(on);
+    layout();
+  };
   aim.eventMode = "none";
   aim.cursor = "crosshair";
   aim.on("pointertap", (e) => {
     const to = e.getLocalPosition(layer);
-    flyRock(layer, { x: to.x * 0.6 + W * 0.2, y: H }, to, () => void (actors.hit(to) || traffic.hit(to) || ruins.hit(to)));
+    flyRock(layer, { x: to.x * 0.6 + W * 0.2, y: mapH }, to, () => void (actors.hit(to) || traffic.hit(to) || cross.hit(to) || ruins.hit(to)));
   });
   world.addChild(aim);
+  showPlaza(plazaOn);
   app.ticker.add((t) => {
     actors.update(t.deltaMS);
     traffic.update(t.deltaMS);
     ruins.update(t.deltaMS);
+    cross.update(t.deltaMS);
   });
 
   const sessions = new Map<string, Session>();
@@ -169,6 +237,11 @@ async function main() {
 
   let lastDetail: SessionDetail | null = null; // updated on every show, even when the redraw is skipped
   const furniture = (f: Furniture) => {
+    if (f === "prs") return showDialog(renderPrDialog(async (fresh) => {
+      const res = await fetch(`/api/prs?token=${encodeURIComponent(token)}${fresh ? "&fresh=1" : ""}`);
+      if (!res.ok) throw new Error(String(res.status));
+      return (await res.json()) as RepoPrs[];
+    }));
     const d = lastDetail;
     if (!d) return;
     if (f === "safe") showDialog(renderTokenDialog(tokenRows(d)));
@@ -242,17 +315,38 @@ async function main() {
   });
   const hud = createHud({
     rock: (armed) => (aim.eventMode = armed ? "static" : "none"),
+    plaza: (on) => {
+      showPlaza(on);
+      store(PLAZA_KEY, on ? "1" : "0");
+    },
+    agents: (on) => {
+      navW = on ? NAV_W : 0;
+      layout();
+      store(AGENTS_KEY, on ? "1" : "0");
+    },
+    photo: (file) =>
+      void photoDataUrl(file)
+        .then(async (url) => {
+          cross.setPhoto(await textureOf(url));
+          if (!store(PHOTO_KEY, url)) flash("Đã treo ảnh, nhưng trình duyệt không lưu được — tải lại trang sẽ mất");
+        })
+        .catch(() => flash("Không đọc được ảnh này — chọn file ảnh khác")),
     launch: () => openLaunch(),
     rules: () =>
       void showRules(
         () => send("GET", "/api/agents/explore").then((r) => (typeof r === "string" ? r : r.state)),
         (enabled) => send("PUT", "/api/agents/explore", { enabled }).then((r) => (typeof r === "string" ? r : r.state)),
       ),
-  });
+  }, plazaOn, agentsOn);
+  const flash = (text: string) => {
+    hud.setHint(text);
+    setTimeout(() => hud.setHint(null), 4000);
+  };
   const apply = () => {
     const state = { sessions: [...sessions.values()], employees: [...employees.values()] };
     actors.sync(state);
     hud.setCounts(state.sessions);
+    agentList.render(state.sessions, state.employees);
     hud.setHint(state.sessions.length ? null : NO_SESSIONS);
     scene.redraw();
   };

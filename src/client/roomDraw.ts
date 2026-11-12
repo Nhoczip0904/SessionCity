@@ -1,6 +1,6 @@
 import { Container, Graphics, Rectangle, Sprite, Text } from "pixi.js";
 import type { Pt } from "./path.js";
-import { decorOver, decorUnder, drawJob, type Anim } from "./roomDecor.js";
+import { LEFT, decorOver, decorUnder, drawJob, type Anim } from "./roomDecor.js";
 import { BOARD_W, BOARD_X, MAX_DESKS, ROOM_COLS, ROOM_ROWS, deskSpots, workJob, type Furniture, type RoomTheme } from "./rooms.js";
 import * as K from "./tiles.js";
 import type { Sheets } from "./tiles.js";
@@ -146,6 +146,22 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
     }
     return new Graphics().rect(px + 1, py + 1, T - 2, T - 2).fill(fallback);
   };
+  /** Tapping `box` (inside `r`) opens `f`; `name` shows above it on hover. */
+  const clickable = (box: Container, r: Rectangle, f: Furniture, name?: string) => {
+    box.eventMode = "static";
+    box.cursor = "pointer";
+    box.hitArea = r;
+    box.on("pointertap", () => onFurniture(f));
+    if (!name) return;
+    const t = label(name);
+    t.anchor.set(0.5, 1);
+    t.position.set(r.x + r.width / 2, r.y + 1);
+    t.visible = false;
+    t.zIndex = 10;
+    box.on("pointerover", () => (t.visible = true));
+    box.on("pointerout", () => (t.visible = false));
+    root.addChild(t);
+  };
   if (theme.decor) decorUnder(theme.decor, anim);
   const shadow = new Graphics();
   root.addChild(shadow);
@@ -161,26 +177,11 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
     if (p.y >= 2) blob((p.x + p.w / 2) * T, (p.y + rows) * T - 1, p.w * T * 0.45);
     if (p.leds) ledSpots.push({ x: p.x, y: p.y });
     root.addChild(box);
-    if (p.action) {
-      const f = p.action;
-      box.eventMode = "static";
-      box.cursor = "pointer";
-      box.hitArea = new Rectangle(p.x * T, p.y * T, p.w * T, rows * T);
-      box.on("pointertap", () => onFurniture(f));
-      if (p.name) {
-        const t = label(p.name);
-        t.anchor.set(0.5, 1);
-        t.position.set((p.x + p.w / 2) * T, p.y * T + 1);
-        t.visible = false;
-        t.zIndex = 10;
-        box.on("pointerover", () => (t.visible = true));
-        box.on("pointerout", () => (t.visible = false));
-        root.addChild(t);
-      }
-    }
+    if (p.action) clickable(box, new Rectangle(p.x * T, p.y * T, p.w * T, rows * T), p.action, p.name);
   }
   leds(root, ledSpots);
   if (theme.decor) decorOver(theme.decor, anim);
+  if (theme.decor === "diff") clickable(root.addChild(new Container()), new Rectangle(LEFT.x, LEFT.y, LEFT.w, LEFT.h), "prs", "Bảng PR");
 
   /** Chair, desk and screen; the person (if any) sits between chair and desk. In a hall only the big desk has one. */
   const desk = theme.desk ?? { tiles: K.IN_DESK, monitor: true };

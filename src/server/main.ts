@@ -5,6 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as nodePty from "node-pty";
 import { startServer } from "./http.js";
+import { prCache, run } from "./prs.js";
 import { PtyHub } from "./pty.js";
 import { ChatHub } from "./chat.js";
 import { history } from "./history.js";
@@ -47,7 +48,7 @@ const chat = {
     return f ? history(f) : [];
   },
 };
-const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), launcher, pty: hub, chat });
+const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), launcher, pty: hub, chat, prs: prCache(() => store.snapshot().sessions.map((x) => x.cwd), run) });
 await watcher.start();
 console.log(server.url);
 if (!claude) console.error("Chưa tìm thấy claude.exe — nút Mở phiên sẽ báo lỗi (cài: winget install Anthropic.ClaudeCode)");

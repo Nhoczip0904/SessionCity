@@ -22,6 +22,42 @@
       .dot.connecting, .dot.closed { background: #f0a030; }
       .dot.auth { background: #e04040; }
       .working { color: #8fd18f; } .waiting { color: #ffd23f; } .idle { color: #9ad0ff; }
+      #agents {
+        position: fixed; top: 32px; left: 0; bottom: 0; width: 200px; box-sizing: border-box; z-index: 4;
+        overflow-y: auto; background: #1c1c22; border-right: 2px solid #000;
+      }
+      #agents[hidden] { display: none; }
+      #agents ul { list-style: none; margin: 0; padding: 0; }
+      #agents > ul { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 8px; padding: 8px; }
+      #agents > ul > li.open { grid-column: 1 / -1; }
+      #agents > ul > li.open > .agent-cell { width: calc(50% - 4px); }
+      #agents li ul { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 6px; margin-top: 10px; }
+      .agent-cell { position: relative; }
+      /* a raised game tile: light top-left bevel, dark bottom-right, a hard drop shadow; it sinks when pressed */
+      .agent-row {
+        position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+        width: 100%; aspect-ratio: 1; box-sizing: border-box; padding: 6px 4px; overflow: hidden;
+        font: inherit; font-size: 11px; color: #eee; text-align: center; cursor: pointer;
+        background: #3a3a4a; border: 2px solid #000;
+        box-shadow: inset 2px 2px 0 #5c5c72, inset -2px -2px 0 #23232d, 0 4px 0 #000;
+        transition: transform 60ms, box-shadow 60ms;
+      }
+      .agent-row:hover { background: #45455a; }
+      .agent-row:active { transform: translateY(3px); box-shadow: inset 2px 2px 0 #23232d, inset -2px -2px 0 #5c5c72, 0 1px 0 #000; }
+      .agent-row:focus-visible { outline: 2px solid #ffd23f; outline-offset: 2px; }
+      .agent-row.sub { font-size: 10px; padding: 4px 3px; background: #30303c; color: #ccc; box-shadow: inset 2px 2px 0 #4a4a5c, inset -2px -2px 0 #1e1e26, 0 3px 0 #000; }
+      .agent-row .name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; line-height: 1.2; }
+      .agent-row.sub .name { -webkit-line-clamp: 3; }
+      .agent-row .ava { flex: none; width: 32px; height: 32px; image-rendering: pixelated; object-fit: contain; }
+      .agent-row .st { position: absolute; top: 5px; left: 5px; }
+      .st { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #888; box-shadow: 0 0 0 1px #000; }
+      .st.working { background: #8fd18f; } .st.waiting { background: #ffd23f; } .st.idle { background: #9ad0ff; } .st.done { background: #666; }
+      .agent-toggle {
+        position: absolute; top: 3px; right: 3px; z-index: 1; min-width: 24px; padding: 0 3px;
+        font: inherit; font-size: 10px; color: #111; background: #ffd23f; border: 1px solid #000; cursor: pointer;
+        box-shadow: inset 1px 1px 0 #fff3a0, 0 2px 0 #000;
+      }
+      .agent-toggle:active { transform: translateY(1px); box-shadow: 0 1px 0 #000; }
       #hint {
         position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 90vw;
         padding: 10px 16px; background: rgba(20, 20, 26, 0.9); border: 2px solid #000; text-align: center;
@@ -75,6 +111,13 @@
       .dialog th:first-child, .dialog td:first-child { text-align: left; }
       .dialog .row { display: block; width: 100%; text-align: left; margin: 2px 0; font: inherit; font-size: 12px; color: #eee; background: #26262e; border: 1px solid #000; padding: 3px 6px; cursor: pointer; overflow-wrap: anywhere; }
       .dialog .row:hover { background: #33333e; }
+      .dialog .pr { display: block; margin: 2px 0; padding: 3px 6px; font-size: 12px; color: #eee; text-decoration: none; background: #26262e; border: 1px solid #000; overflow-wrap: anywhere; }
+      .dialog a.pr:hover { background: #33333e; }
+      .dialog .pr .num { color: #9ad0ff; }
+      .dialog .tag { display: inline-block; padding: 0 4px; font-size: 10px; border: 1px solid #000; color: #111; background: #aaa; }
+      .dialog .pr .meta { margin-top: 3px; font-size: 11px; color: #ccc; }
+      .dialog .tag.none { background: #3a3a44; color: #bbb; }
+      .dialog .tag.ok { background: #8fd18f; } .dialog .tag.bad { background: #ff8a8a; } .dialog .tag.wait { background: #ffd23f; } .dialog .tag.draft { background: #777; color: #eee; }
       .dialog h3 { margin: 10px 0 2px; font-size: 13px; color: #9ad0ff; }
       .dialog pre { margin: 6px 0; max-height: 50vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
       .dialog button.go { margin-top: 8px; }
@@ -136,6 +179,7 @@
   <body>
     <div id="app"></div>
     <div id="hud" role="status">
+      <button id="btn-agents" type="button" aria-pressed="true" aria-controls="agents" title="Ẩn hoặc hiện cột danh sách agent">☰ Agent</button>
       <span>BackendCity</span>
       <button id="btn-back" type="button" hidden>← Về thành phố</button>
       <span id="place-name" hidden></span>
@@ -145,8 +189,12 @@
       <button id="btn-launch" type="button">+ Mở phiên</button>
       <button id="btn-rules" type="button">Quy tắc model</button>
       <button id="btn-rock" type="button" aria-pressed="false" title="Bật rồi bấm lên bản đồ để chọi đá người đi đường">🪨 Chọi đá</button>
+      <button id="btn-plaza" type="button" aria-pressed="true" title="Bật hoặc tắt quảng trường">⛪ Quảng trường</button>
+      <button id="btn-photo" type="button" title="Chọn ảnh khác treo lên thánh giá">🖼 Đổi ảnh</button>
+      <input id="photo-file" type="file" accept="image/*" hidden />
       <span id="conn" class="dot connecting" title="Đang kết nối…"></span>
     </div>
+    <nav id="agents" aria-label="Danh sách agent"></nav>
     <div id="hint" hidden></div>
     <aside id="panel" hidden></aside>
     <div id="tooltip" hidden></div>

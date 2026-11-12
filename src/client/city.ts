@@ -6,7 +6,7 @@ import type { Pt } from "./path.js";
 import type { Sheets } from "./tiles.js";
 
 export const TILE = 16;
-const COLS = 48, ROWS = 32;
+const COLS = 48, ROWS = 43;
 // ring road + cross streets, each 2 tiles wide
 export const ROAD_ROWS = [2, 3, 15, 16, 28, 29];
 export const ROAD_COLS = [2, 3, 15, 16, 31, 32, 44, 45];
@@ -36,6 +36,8 @@ const PLOTS: Plot[] = [
 const HQ: { x: number; y: number; up: boolean }[] = [];
 for (let i = 0; i < 7; i++) HQ.push({ x: 17 + 2 * i, y: 18, up: false });
 for (let i = 0; i < 7; i++) HQ.push({ x: 17 + 2 * i, y: 24, up: false });
+// paved square below the south ring road, in tiles
+const PLAZA = { x: 14, y: 32, w: 20, h: 10 }; // the city above it is rows 0–31
 
 const door = (x: number, y: number, h: number, up: boolean): Pt => ({ x, y: up ? y - 1 : y + h });
 const hash = (x: number, y: number) => (((x * 73856093) ^ (y * 19349663)) >>> 0) % 1000;
@@ -57,9 +59,11 @@ export function buildCity(sheets: Sheets | null) {
   };
   PLOTS.forEach((p) => mark(p.x, p.y, p.w, p.h));
   HQ.forEach((h) => mark(h.x, h.y, 2, 4));
+  mark(PLAZA.x, PLAZA.y, PLAZA.w, PLAZA.h); // no trees on the square
 
   const plots = PLOTS.map((p) => ({ id: p.id, px: { x: p.x * TILE, y: p.y * TILE, w: p.w * TILE, h: p.h * TILE } }));
   const hqPlots = HQ.map((h) => ({ x: h.x * TILE, y: h.y * TILE, w: 2 * TILE, h: 4 * TILE }));
+  const plaza = { x: PLAZA.x * TILE, y: PLAZA.y * TILE, w: PLAZA.w * TILE, h: PLAZA.h * TILE };
 
   function draw(): Container {
     const root = sheets
@@ -73,7 +77,7 @@ export function buildCity(sheets: Sheets | null) {
     const hqLabel = new Text({ text: "Trụ sở", style: LABEL_STYLE, resolution: 2 });
     hqLabel.anchor.set(0.5);
     hqLabel.position.set(24 * TILE, 23.5 * TILE);
-    root.addChild(hqLabel);
+    root.addChild(hqLabel, drawPlaza());
     return root;
   }
 
@@ -129,7 +133,23 @@ export function buildCity(sheets: Sheets | null) {
     return root;
   }
 
-  return { cols: COLS, rows: ROWS, walkable, doors, hqDoors, plots, hqPlots, draw };
+  return { cols: COLS, rows: ROWS, walkable, doors, hqDoors, plots, hqPlots, plaza, draw };
+}
+
+/** Stone paving in a brick pattern with a darker kerb, and its name. */
+function drawPlaza(): Container {
+  const T = TILE, x = PLAZA.x * T, y = PLAZA.y * T, w = PLAZA.w * T, h = PLAZA.h * T;
+  const g = new Graphics().rect(x, y, w, h).fill(0x8a8274).rect(x + 2, y + 2, w - 4, h - 4).fill(0xc2b8a4);
+  for (let j = 0; j * 8 < h - 4; j++) {
+    g.rect(x + 2, y + 2 + j * 8, w - 4, 1).fill(0xaaa08c);
+    for (let i = (j % 2) * 8; i < w - 4; i += 16) g.rect(x + 2 + i, y + 2 + j * 8, 1, 8).fill(0xaaa08c);
+  }
+  const t = new Text({ text: "Quảng trường", style: LABEL_STYLE, resolution: 2 });
+  t.anchor.set(0.5);
+  t.position.set(x + w / 2, y + 8);
+  const c = new Container();
+  c.addChild(g, t);
+  return c;
 }
 
 /** Building name with a 1-line sign plaque under it. */

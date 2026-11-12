@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CanvasTextMetrics, Container, EventBoundary, Texture, FederatedPointerEvent } from "pixi.js";
 import "pixi.js/events";
 import { drawRoom, fitBoard } from "../src/client/roomDraw.js";
-import { OFFICE_THEME } from "../src/client/rooms.js";
+import { OFFICE_THEME, ROOM_THEMES } from "../src/client/rooms.js";
 
 function tap(boundary: EventBoundary, x: number, y: number) {
   for (const type of ["pointerdown", "pointerup"] as const) {
@@ -34,6 +34,21 @@ describe("room taps without a preceding hover (Pixi hit testing)", () => {
     }
     tap(b, 8 * 16 + 8, 3 * 16 + 8);
     expect(onPick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the review room's diff screen", () => {
+  it("is the PR board: tapping it opens the board; other rooms' wall panels do nothing", () => {
+    const onFurniture = vi.fn();
+    const root = new Container();
+    root.addChild(drawRoom({ indoor: () => Texture.WHITE } as never, ROOM_THEMES.review!, [], ["a"], null, onFurniture));
+    tap(new EventBoundary(root), 20, 15); // middle of the left wall panel
+    expect(onFurniture).toHaveBeenLastCalledWith("prs");
+    const other = vi.fn();
+    const r2 = new Container();
+    r2.addChild(drawRoom({ indoor: () => Texture.WHITE } as never, ROOM_THEMES.lab!, [], ["a"], null, other));
+    tap(new EventBoundary(r2), 20, 15);
+    expect(other).not.toHaveBeenCalled();
   });
 });
 
