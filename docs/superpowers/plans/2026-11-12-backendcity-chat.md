@@ -14,7 +14,7 @@
 
 ## Global Constraints
 
-- **Spawn args (exact):** `["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--resume", sessionId, "--permission-prompts", "host"]`, plus only the extra flags Task 1's probe proves necessary.
+- **Spawn args (exact):** `["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--resume", sessionId, "--permission-prompts", "host", "--permission-prompt-tool", "stdio"]`. The last pair was proven necessary by the Task 1 probe.
 - **Spawn options:** `{ cwd, env: process.env, stdio: "pipe", windowsHide: true }`. No shell and no string-built commands.
 - **Limits:**
   - at most 3 chats;
@@ -68,12 +68,23 @@
   - the final extra flags, if any.
 - [ ] **Step 5:** Commit: `docs: chat plan — record observed stream-json protocol`.
 
-**Protocol (filled by Task 1):**
-- input user line: _to fill_
-- can_use_tool request: _to fill_
-- allow response / deny response / interrupt request: _to fill_
-- text delta / assistant / tool_result / result shapes: _to fill_
-- extra spawn flags: _to fill (none expected)_
+**Protocol (filled by Task 1 — observed 2026-11-12, claude v2.1.319, verbatim shapes, ids shortened):**
+- **Extra spawn flags: `"--permission-prompt-tool", "stdio"` is REQUIRED.** Without it, `--permission-prompts host` never sends `can_use_tool`, and claude rejects the tool on its own (`permission_decision.source:"config"`). The full args are therefore `[...Global args, "--permission-prompt-tool", "stdio"]`. No `--permission-mode` flag: the user's own settings decide what is auto-allowed, and a prompt appears only for the rest.
+- **Input user line:** `{"type":"user","message":{"role":"user","content":"<text>"}}`
+- **can_use_tool request (stdout):** `{"type":"control_request","request_id":"8313abd3-…","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"C:\\…\\note.txt","content":"hi"},"description":"note.txt","permission_suggestions":[…],"tool_use_id":"toolu_01Hs…"}}`
+- **Allow (stdin):** `{"type":"control_response","response":{"subtype":"success","request_id":"<id>","response":{"behavior":"allow","updatedInput":<request.input>}}}`. The tool then runs and the tool_result is success.
+- **Deny (stdin):** `{"type":"control_response","response":{"subtype":"success","request_id":"<id>","response":{"behavior":"deny","message":"Người dùng từ chối"}}}`. The tool_result content is then `"Người dùng từ chối"` with `is_error:true`.
+- **Interrupt (stdin):** `{"type":"control_request","request_id":"<our id, e.g. int-<n>>","request":{"subtype":"interrupt"}}`. claude acks on stdout with `{"type":"control_response","response":{"subtype":"success","request_id":"int-1","response":{"still_queued":[]}}}`, then sends a `result` with `"subtype":"error_during_execution","is_error":true`. **The UI must show that result as "Đã dừng", not as an error.**
+- **Text delta:** `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"…"}},"parent_tool_use_id":null,…}`
+- **Assistant:** `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"…"} | {"type":"tool_use","id":"toolu_…","name":"Write","input":{…}}],…},"parent_tool_use_id":null,…}`. Each content block arrives as its own `assistant` line with the same `message.id`.
+- **Tool result:** `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_…","content":"<string>","is_error":false}]},"parent_tool_use_id":null,…}`. `content` can also be an array of `{type:"text",text}`.
+- **Result:** `{"type":"result","subtype":"success"|"error_during_execution"|…,"is_error":bool,"result":"<final text>","total_cost_usd":0.004,"duration_ms":8228,"num_turns":2,…}`
+- **Other lines to ignore:**
+  - `system` (init, status, hook_started, hook_response);
+  - `rate_limit_event`;
+  - `stream_event` types other than text_delta;
+  - any line whose `parent_tool_use_id` is non-null (subagent traffic).
+- **Lifecycle:** the process stays alive after `result` while stdin is open, ready for the next user line. Closing stdin ends it with exit 0.
 
 ---
 
