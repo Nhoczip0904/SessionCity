@@ -12,11 +12,12 @@ const RESPAWN = 4000; // ms before a blown-up car is replaced
 const BOOM_MS = 900;
 
 /** Fireball, smoke and flying debris at (x, y), then gone. */
-function boom(parent: Container, x: number, y: number) {
+export function boom(parent: Container, x: number, y: number, size = 1) {
   const g = new Graphics();
   g.label = "boom";
   g.eventMode = "none";
   g.position.set(x, y);
+  g.scale.set(size);
   parent.addChild(g);
   const bits = Array.from({ length: 8 }, (_, i) => ({ a: (i / 8) * Math.PI * 2 + 0.3, v: 10 + (i % 3) * 5 }));
   let t = 0;
