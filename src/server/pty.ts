@@ -47,6 +47,7 @@ export class PtyHub {
     const kill = () => {
       if (entry.exited) return;
       entry.exited = true; // node-pty throws on a second kill
+      this.live.delete(entry); // free the slot now; conpty's exit event can lag or never come
       proc.kill();
     };
     return {

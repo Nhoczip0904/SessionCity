@@ -56,6 +56,14 @@ describe("PtyHub", () => {
     expect(procs[1].kill).toHaveBeenCalledTimes(1);
   });
 
+  it("kill frees the slot without waiting for the exit event", () => {
+    const { spawn } = fake();
+    const hub = new PtyHub(spawn, "c", 1);
+    hub.open("a", "c", 1, 1)!.kill();
+    expect(hub.size).toBe(0);
+    expect(hub.open("b", "c", 1, 1)).not.toBeNull();
+  });
+
   it("killAll kills running procs and empties the hub", () => {
     const { spawn, procs } = fake();
     const hub = new PtyHub(spawn, "c");

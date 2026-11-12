@@ -37,6 +37,7 @@ describe("/pty websocket", () => {
   let opens: [string, string, number, number][];
   let term: FakeTerm;
   let full = false;
+  let boom = false;
   let killAlls = 0;
   beforeAll(async () => {
     d = await mkdtemp(join(tmpdir(), "http-pty-"));
@@ -50,6 +51,7 @@ describe("/pty websocket", () => {
       pty: {
         open: (s, c, cols, rows) => {
           if (full) return null;
+          if (boom) throw new Error("Cannot create process, error code: 2");
           opens.push([s, c, cols, rows]);
           return (term = new FakeTerm());
         },
@@ -153,5 +155,15 @@ describe("/pty websocket", () => {
       method: "POST", headers: { Origin: `http://127.0.0.1:${p}`, "Content-Type": "application/json" }, body: "{}",
     });
     expect(r.status).toBe(405);
+  });
+
+  it("a spawn that throws answers 500 and the server keeps running", async () => {
+    boom = true;
+    const { status } = await connect(`session=${SID}`);
+    boom = false;
+    expect(status).toBe(500);
+    const { ws } = await connect(`session=${SID}`);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
   });
 });
