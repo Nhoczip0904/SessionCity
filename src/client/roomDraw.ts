@@ -1,7 +1,7 @@
 import { Container, Graphics, Rectangle, Sprite, Text } from "pixi.js";
 import type { Pt } from "./path.js";
-import { decorOver, decorUnder, drawSiteJob, type Anim } from "./roomDecor.js";
-import { BOARD_W, BOARD_X, MAX_DESKS, ROOM_COLS, ROOM_ROWS, deskSpots, siteJob, type Furniture, type RoomTheme } from "./rooms.js";
+import { decorOver, decorUnder, drawJob, type Anim } from "./roomDecor.js";
+import { BOARD_W, BOARD_X, MAX_DESKS, ROOM_COLS, ROOM_ROWS, deskSpots, workJob, type Furniture, type RoomTheme } from "./rooms.js";
 import * as K from "./tiles.js";
 import type { Sheets } from "./tiles.js";
 
@@ -184,7 +184,7 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
 
   /** Chair, desk and screen; the person (if any) sits between chair and desk. In a hall only the big desk has one. */
   const desk = theme.desk ?? { tiles: K.IN_DESK, monitor: true };
-  const hall = theme.layout === "hall", lounge = theme.layout === "lounge", site = theme.layout === "site";
+  const hall = theme.layout === "hall", lounge = theme.layout === "lounge", work = theme.layout === "site" || theme.layout === "factory" ? theme.layout : null;
   const span = (big: boolean) => (big ? { left: -1, w: 3 } : hall || lounge ? { left: 0, w: 1 } : { left: 0, w: 2 });
   const station = (x: number, y: number, big: boolean, fig: Container | null, on: boolean, back = false): Container => {
     const { w } = span(big), left = x + span(big).left;
@@ -199,8 +199,8 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
       }
       return c;
     }
-    if (site) {
-      // a builder in a hard hat behind their job (bricks, beam, mixer, saw, paint, drill), animated while working
+    if (work) {
+      // a worker in a hard hat behind their job (site: bricks, beam, mixer…; factory: press, lathe, robot…), animated while working
       blob(cx, (y + 2) * T - 1, w * T * 0.45);
       if (fig) {
         fig.position.set(Math.round(cx), (y + 1) * T + 6);
@@ -209,9 +209,9 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
       }
       const job = new Graphics();
       job.eventMode = "none";
-      const kind = siteJob({ x, y }), wx = left * T, wy = (y + 1) * T, phase = (x * 7 + y * 3) % 16;
-      if (on) job.onRender = () => drawSiteJob(job, kind, wx, wy, performance.now(), true, phase);
-      drawSiteJob(job, kind, wx, wy, 0, on, phase);
+      const kind = workJob(work, { x, y }), wx = left * T, wy = (y + 1) * T, phase = (x * 7 + y * 3) % 16;
+      if (on) job.onRender = () => drawJob(job, kind, wx, wy, performance.now(), true, phase);
+      drawJob(job, kind, wx, wy, 0, on, phase);
       c.addChild(job);
       return c;
     }
