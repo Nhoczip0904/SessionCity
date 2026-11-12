@@ -231,12 +231,17 @@ export async function startServer(opts: {
       const sid = (url.searchParams.get("session") ?? "").toLowerCase(); // store ids are lowercase
       const s = SESSION_ID.test(sid) ? store.detailSession(sid) : undefined; // the id goes on a command line
       if (!s || !opts.pty) return reject(404, "Not Found");
-      const term = opts.pty.open(
-        sid,
-        s.cwd && isDir(s.cwd) ? s.cwd : homedir(),
-        clampSize(url.searchParams.get("cols"), 120, 20, 400),
-        clampSize(url.searchParams.get("rows"), 32, 5, 200),
-      );
+      let term;
+      try {
+        term = opts.pty.open(
+          sid,
+          s.cwd && isDir(s.cwd) ? s.cwd : homedir(),
+          clampSize(url.searchParams.get("cols"), 120, 20, 400),
+          clampSize(url.searchParams.get("rows"), 32, 5, 200),
+        );
+      } catch {
+        return reject(500, "Internal Server Error"); // conpty throws when CreateProcess fails; must not kill the server
+      }
       if (!term) return reject(503, "Service Unavailable");
       let up = false;
       ptyWss.handleUpgrade(req, socket, head, (ws) => {
@@ -254,9 +259,13 @@ export async function startServer(opts: {
           } catch {
             return;
           }
-          if (m?.t === "in" && typeof m.d === "string") term.write(m.d);
-          else if (m?.t === "size" && typeof m.cols === "number" && typeof m.rows === "number")
-            term.resize(clampSize(String(m.cols), 120, 20, 400), clampSize(String(m.rows), 32, 5, 200));
+          try {
+            if (m?.t === "in" && typeof m.d === "string") term.write(m.d);
+            else if (m?.t === "size" && typeof m.cols === "number" && typeof m.rows === "number")
+              term.resize(clampSize(String(m.cols), 120, 20, 400), clampSize(String(m.rows), 32, 5, 200));
+          } catch {
+            // node-pty throws on a pty that exited before onExit fired; the 4000 close follows
+          }
         });
       });
       if (!up) term.kill(); // invalid handshake: ws aborted without calling back (the callback is synchronous)

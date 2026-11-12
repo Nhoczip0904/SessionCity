@@ -8,7 +8,8 @@ export interface TermDeps {
   WebSocket: typeof WebSocket;
 }
 
-const CHUNK = 16384;
+// JSON can grow a char to 6 bytes (\uXXXX); 8000 keeps a frame under the 64 KB maxPayload
+const CHUNK = 8000;
 let current: (() => void) | null = null;
 export const isTerminalOpen = () => current !== null;
 
@@ -35,6 +36,12 @@ export function openTerminal(opts: { sessionId: string; title: string; token: st
   box.append(bar, body);
   root.append(box);
   root.addEventListener("keydown", (e) => e.stopPropagation()); // Esc must not close the panel/scene behind
+  // keep focus in the terminal: a click on the bar or backdrop would send it to <body>, where Esc reaches the scene
+  root.addEventListener("mousedown", (e) => {
+    if (e.target === x || body.contains(e.target as Node)) return;
+    e.preventDefault();
+    term.focus();
+  });
   document.body.append(root);
 
   const term = deps.makeTerm();
@@ -62,7 +69,13 @@ export function openTerminal(opts: { sessionId: string; title: string; token: st
   };
   term.onData((d) => {
     if (!live) return;
-    for (let i = 0; i < d.length; i += CHUNK) send({ t: "in", d: d.slice(i, i + CHUNK) });
+    for (let i = 0; i < d.length; ) {
+      let j = Math.min(i + CHUNK, d.length);
+      const c = d.charCodeAt(j - 1);
+      if (j < d.length && c >= 0xd800 && c <= 0xdbff) j--; // do not split a surrogate pair
+      send({ t: "in", d: d.slice(i, j) });
+      i = j;
+    }
   });
 
   const close = () => {

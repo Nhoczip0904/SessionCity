@@ -69,7 +69,17 @@ describe("openTerminal", () => {
     term.data(big);
     const ds = ws.sent.map((s) => JSON.parse(s).d as string);
     expect(ds.length).toBeGreaterThan(1);
-    expect(ds.every((d) => d.length <= 16384)).toBe(true);
+    expect(ds.every((d) => d.length <= 8000)).toBe(true);
+    expect(ds.join("")).toBe(big);
+  });
+  it("never splits a surrogate pair across chunks", () => {
+    const { term, ws } = setup();
+    ws.onopen!();
+    const big = "x".repeat(7999) + "😀".repeat(10);
+    term.data(big);
+    const ds = ws.sent.map((s) => JSON.parse(s).d as string);
+    expect(ds.length).toBe(2);
+    expect(ds[0]).toBe("x".repeat(7999));
     expect(ds.join("")).toBe(big);
   });
   it("resize: nothing before open, size after", () => {
