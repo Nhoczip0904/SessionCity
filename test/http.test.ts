@@ -365,7 +365,7 @@ describe("launch + explore routes", () => {
     await writeFile(join(d, "agents", "Explore.md"), "mine");
     const r = await call("PUT", "/api/agents/explore", JSON.stringify({ enabled: true }));
     expect(r.status).toBe(409);
-    expect(JSON.parse(r.body)).toEqual({ error: "Bạn đã có Explore.md riêng — BackendCity không sửa file này" });
+    expect(JSON.parse(r.body)).toEqual({ error: "Bạn đã có Explore.md riêng — SessionCity không sửa file này" });
     expect(await readFile(join(d, "agents", "Explore.md"), "utf8")).toBe("mine");
     await rm(join(d, "agents", "Explore.md"));
   });

@@ -72,7 +72,7 @@ export function buildLaunch(
 ): { file: string; args: string[] } {
   const run = [env.node, env.script, env.jobFile];
   if (env.wt)
-    return { file: env.wt, args: ["-w", "new", "new-tab", "-d", opts.cwd, "--title", "BackendCity", ...run].map(esc) };
+    return { file: env.wt, args: ["-w", "new", "new-tab", "-d", opts.cwd, "--title", "SessionCity", ...run].map(esc) };
   if ([opts.cwd, ...run].some((s) => CMD_META.test(s))) throw new LaunchInputError("Đường dẫn chứa ký tự không an toàn");
   return { file: "cmd.exe", args: ["/c", "start", "", "/D", opts.cwd, ...run] };
 }

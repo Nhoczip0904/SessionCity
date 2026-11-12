@@ -67,7 +67,7 @@ describe("buildLaunch", () => {
   it("wt argv runs the fixed script with the job file", () =>
     expect(buildLaunch({ cwd: "D:\\Học\\Dự án x" }, { ...env, wt: "C:\\wt.exe" })).toEqual({
       file: "C:\\wt.exe",
-      args: ["-w", "new", "new-tab", "-d", "D:\\Học\\Dự án x", "--title", "BackendCity", env.node, env.script, env.jobFile],
+      args: ["-w", "new", "new-tab", "-d", "D:\\Học\\Dự án x", "--title", "SessionCity", env.node, env.script, env.jobFile],
     }));
   it("escapes ; in wt args", () => {
     const { args } = buildLaunch({ cwd: "D:\\a;b" }, { ...env, jobFile: "C:\\j;k.json", wt: "C:\\wt.exe" });
