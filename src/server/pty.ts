@@ -19,6 +19,7 @@ export interface Term {
 }
 
 interface Entry {
+  sid: string;
   proc: PtyProc;
   exited: boolean;
 }
@@ -35,10 +36,15 @@ export class PtyHub {
     return this.live.size;
   }
 
+  isOpen(sessionId: string): boolean {
+    for (const e of this.live) if (e.sid === sessionId) return true;
+    return false;
+  }
+
   open(sessionId: string, cwd: string, cols: number, rows: number): Term | null {
     if (!this.claude || this.live.size >= this.max) return null;
     const proc = this.spawn(this.claude, ["--resume", sessionId], { name: "xterm-256color", cols, rows, cwd, env: process.env });
-    const entry: Entry = { proc, exited: false };
+    const entry: Entry = { sid: sessionId, proc, exited: false };
     this.live.add(entry);
     proc.onExit(() => {
       entry.exited = true;

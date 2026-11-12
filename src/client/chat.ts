@@ -20,7 +20,7 @@ const md = new Marked({
     image: ({ text }) => esc(text),
     link(this: { parser: { parseInline(t: unknown): string } }, { href, tokens }) {
       const inner = this.parser.parseInline(tokens);
-      return /^https?:\/\//i.test(href.trim()) ? `<a href="${esc(href.trim())}" target="_blank" rel="noopener">${inner}</a>` : inner;
+      return /^https?:\/\//i.test(href.trim()) ? `<a href="${esc(href.trim())}" target="_blank" rel="noopener noreferrer">${inner}</a>` : inner;
     },
   },
 });
@@ -131,7 +131,9 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   };
 
   const onEv = (e: any) => {
-    if (!e || e.parent_tool_use_id) return;
+    if (!e) return;
+    // subagent traffic is hidden, but its permission prompts must show or claude waits forever
+    if (e.parent_tool_use_id && e.type !== "control_request") return;
     switch (e.type) {
       case "stream_event": {
         const d = e.event?.type === "content_block_delta" ? e.event.delta : null;
@@ -262,7 +264,7 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   const onDocKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
       e.stopPropagation();
-      if (answering) stop();
+      if (answering && !e.isComposing) stop(); // Esc during IME composition only cancels the composition
     } else if (!root.contains(e.target as Node)) e.stopPropagation();
   };
   document.addEventListener("keydown", onDocKey, true);

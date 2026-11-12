@@ -41,6 +41,7 @@ const chatHub = new ChatHub(spawn, claude);
 const chat = {
   open: (sid: string, cwd: string) => chatHub.open(sid, cwd),
   killAll: () => chatHub.killAll(),
+  isOpen: (sid: string) => chatHub.isOpen(sid),
   history: async (sid: string) => {
     const f = watcher.fileOf(sid);
     return f ? history(f) : [];

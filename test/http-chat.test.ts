@@ -14,12 +14,12 @@ const GONE = "39b8e93b-ef21-47c9-b0e5-d293accee304";
 
 class FakeChat implements Chat {
   ev: (e: Record<string, unknown>) => void = () => {};
-  exit: (c: number) => void = () => {};
+  exit: (c: number, e?: string) => void = () => {};
   calls: unknown[][] = [];
   known = new Set<string>(["r1"]);
   kills = 0;
   onEvent(cb: (e: Record<string, unknown>) => void) { this.ev = cb; }
-  onExit(cb: (c: number) => void) { this.exit = cb; }
+  onExit(cb: (c: number, e: string) => void) { this.exit = (c, e) => cb(c, e ?? ""); }
   say(t: string) { this.calls.push(["say", t]); }
   answer(id: string, a: boolean) { this.calls.push(["answer", id, a]); }
   interrupt() { this.calls.push(["interrupt"]); }
@@ -42,6 +42,8 @@ describe("/chat websocket", () => {
   let boom = false;
   let killAlls = 0;
   let slow: Promise<void> | null = null;
+  const busy = new Set<string>();
+  const ptyBusy = new Set<string>();
   beforeAll(async () => {
     d = await mkdtemp(join(tmpdir(), "http-chat-"));
     const st = new Store();
@@ -59,11 +61,13 @@ describe("/chat websocket", () => {
           return (chat = new FakeChat());
         },
         killAll: () => void killAlls++,
+        isOpen: (s) => busy.has(s),
         history: async () => {
           await slow;
           return [{ role: "user", text: "hello" }];
         },
       },
+      pty: { open: () => null, killAll: () => {}, isOpen: (s) => ptyBusy.has(s) },
     });
     p = Number(new URL(sv.url).port);
   });
@@ -165,7 +169,7 @@ describe("/chat websocket", () => {
     const before = killAlls;
     const s2 = await startServer({
       port: 0, token: TOKEN, store: new Store(), clientDir: d, claude: null, agentsDir: d, claudeDir: d,
-      launcher: async () => {}, chat: { open: () => null, killAll: () => void killAlls++, history: async () => [] },
+      launcher: async () => {}, chat: { open: () => null, killAll: () => void killAlls++, isOpen: () => false, history: async () => [] },
     });
     await s2.close();
     expect(killAlls).toBe(before + 1);
@@ -186,5 +190,30 @@ describe("/chat websocket", () => {
     });
     expect(opens.length).toBe(before + 1);
     await until(() => chat.kills === 1);
+  });
+
+  it("409 when the session is already open in a chat or a terminal, before spawning", async () => {
+    const before = opens.length;
+    busy.add(SID);
+    expect((await connect(`session=${SID}`)).status).toBe(409);
+    busy.delete(SID);
+    ptyBusy.add(SID);
+    expect((await connect(`session=${SID}`)).status).toBe(409);
+    ptyBusy.delete(SID);
+    expect(opens.length).toBe(before);
+  });
+
+  it("the close reason is the exit code plus the last stderr line, within 123 bytes", async () => {
+    const a = await connect(`session=${SID}`);
+    const closed = new Promise<string>((ok) => a.ws.on("close", (_c, r) => ok(r.toString())));
+    chat.exit(1, "boom");
+    expect(await closed).toBe("1: boom");
+    const b = await connect(`session=${SID}`);
+    const long = new Promise<Buffer>((ok) => b.ws.on("close", (_c, r) => ok(r)));
+    chat.exit(1, "Lỗi ".repeat(60));
+    const r = await long;
+    expect(r.length).toBeLessThanOrEqual(123);
+    expect(r.toString().startsWith("1: Lỗi Lỗi")).toBe(true);
+    expect(r.toString()).not.toContain("�");
   });
 });

@@ -39,6 +39,18 @@ export function tokenOk(expected: string, given: string | null): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+// a close reason may be at most 123 UTF-8 bytes; cut on a character boundary
+function reason(code: number, err: string): string {
+  let r = "";
+  let n = 0;
+  for (const ch of String(code) + (err ? ": " + err : "")) {
+    n += Buffer.byteLength(ch);
+    if (n > 123) break;
+    r += ch;
+  }
+  return r;
+}
+
 export async function startServer(opts: {
   port: number;
   token: string;
@@ -48,8 +60,8 @@ export async function startServer(opts: {
   agentsDir: string;
   claudeDir: string;
   launcher: (opts: LaunchOpts) => Promise<void>;
-  pty?: { open(sessionId: string, cwd: string, cols: number, rows: number): Term | null; killAll(): void };
-  chat?: { open(sessionId: string, cwd: string): Chat | null; killAll(): void; history(sessionId: string): Promise<HistoryItem[]> };
+  pty?: { open(sessionId: string, cwd: string, cols: number, rows: number): Term | null; killAll(): void; isOpen(sessionId: string): boolean };
+  chat?: { open(sessionId: string, cwd: string): Chat | null; killAll(): void; isOpen(sessionId: string): boolean; history(sessionId: string): Promise<HistoryItem[]> };
 }): Promise<{ url: string; close(): Promise<void> }> {
   const { token, store } = opts;
   const clientRoot = resolve(opts.clientDir);
@@ -236,6 +248,7 @@ export async function startServer(opts: {
       const s = SESSION_ID.test(sid) ? store.detailSession(sid) : undefined;
       const hub = opts.chat;
       if (!s || !hub) return reject(404, "Not Found");
+      if (hub.isOpen(sid) || opts.pty?.isOpen(sid)) return reject(409, "Conflict"); // a second claude on one session forks the transcript
       let chat;
       try {
         chat = hub.open(sid, s.cwd && isDir(s.cwd) ? s.cwd : homedir());
@@ -254,7 +267,7 @@ export async function startServer(opts: {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(o));
         };
         chat.onEvent((e) => run(() => out({ t: "ev", e })));
-        chat.onExit((code) => run(() => ws.close(4000, String(code))));
+        chat.onExit((code, err) => run(() => ws.close(4000, reason(code, err))));
         ws.on("close", () => chat.kill());
         void hub.history(sid).catch((): HistoryItem[] => []).then((items) => {
           out({ t: "history", items });
@@ -285,6 +298,7 @@ export async function startServer(opts: {
       const sid = (url.searchParams.get("session") ?? "").toLowerCase(); // store ids are lowercase
       const s = SESSION_ID.test(sid) ? store.detailSession(sid) : undefined; // the id goes on a command line
       if (!s || !opts.pty) return reject(404, "Not Found");
+      if (opts.pty.isOpen(sid) || opts.chat?.isOpen(sid)) return reject(409, "Conflict");
       let term;
       try {
         term = opts.pty.open(

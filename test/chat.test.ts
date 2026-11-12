@@ -1,21 +1,22 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatHub, type ChatProc, type ChatSpawn } from "../src/server/chat.js";
 
 const ARGS = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--resume", "abc", "--permission-prompts", "host", "--permission-prompt-tool", "stdio"];
 
 function fake() {
-  const procs: { proc: ChatProc; out: PassThrough; written: string[]; exit: (code: number | null) => void; kill: ReturnType<typeof vi.fn>; fail: () => void }[] = [];
+  const procs: { proc: ChatProc; out: PassThrough; err: PassThrough; stdin: PassThrough; written: string[]; exit: (code: number | null) => void; kill: ReturnType<typeof vi.fn>; fail: () => void }[] = [];
   const spawn = vi.fn<ChatSpawn>(() => {
     const out = new PassThrough();
+    const err = new PassThrough();
     const stdin = new PassThrough();
     const written: string[] = [];
     stdin.on("data", (d) => written.push(String(d)));
     const ee = new EventEmitter();
     const kill = vi.fn();
-    const proc = { stdout: out, stdin, on: (ev: string, cb: (...a: any[]) => void) => ee.on(ev, cb), kill } as unknown as ChatProc;
-    procs.push({ proc, out, written, exit: (c) => ee.emit("exit", c), kill, fail: () => ee.emit("error", new Error("ENOENT")) });
+    const proc = { stdout: out, stderr: err, stdin, pid: 4242, on: (ev: string, cb: (...a: any[]) => void) => ee.on(ev, cb), kill } as unknown as ChatProc;
+    procs.push({ proc, out, err, stdin, written, exit: (c) => ee.emit("exit", c), kill, fail: () => ee.emit("error", new Error("ENOENT")) });
     return proc;
   });
   return { spawn, procs };
@@ -47,7 +48,7 @@ describe("ChatHub", () => {
     expect(hub.size).toBe(1);
     chat.kill();
     chat.kill();
-    expect(procs[1].kill).toHaveBeenCalledTimes(1);
+    expect(procs[1].stdin.writableEnded).toBe(true);
     expect(hub.size).toBe(0);
   });
 
@@ -114,6 +115,89 @@ describe("ChatHub", () => {
     procs[0].fail();
     procs[0].exit(null);
     expect(codes).toEqual([1]);
+    expect(hub.size).toBe(0);
+  });
+
+  it("drains stderr so a chatty claude cannot fill the pipe", async () => {
+    const { spawn, procs } = fake();
+    new ChatHub(spawn, "c").open("a", "c");
+    procs[0].err.write("x".repeat(1024 * 1024));
+    await tick();
+    expect(procs[0].err.readableLength).toBe(0);
+  });
+
+  it("onExit gets the last non-empty stderr line cut to 120 chars", async () => {
+    const { spawn, procs } = fake();
+    const chat = new ChatHub(spawn, "c").open("a", "c")!;
+    const got: unknown[][] = [];
+    chat.onExit((...a) => got.push(a));
+    procs[0].err.write("first\n" + "b".repeat(200) + "\n\n  \n");
+    await tick();
+    procs[0].exit(2);
+    expect(got).toEqual([[2, "b".repeat(120)]]);
+  });
+
+  it("isOpen tracks the session until the slot is freed", () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c");
+    const a = hub.open("a", "c")!;
+    hub.open("b", "c");
+    expect(hub.isOpen("a")).toBe(true);
+    expect(hub.isOpen("z")).toBe(false);
+    a.kill();
+    expect(hub.isOpen("a")).toBe(false);
+    procs[1].exit(0);
+    expect(hub.isOpen("b")).toBe(false);
+  });
+});
+
+describe("ChatHub kill", () => {
+  afterEach(() => vi.useRealTimers());
+  const win = process.platform === "win32";
+
+  it("kill ends stdin (claude exits 0 on EOF)", () => {
+    const { spawn, procs } = fake();
+    new ChatHub(spawn, "c", 3, vi.fn()).open("a", "c")!.kill();
+    expect(procs[0].stdin.writableEnded).toBe(true);
+  });
+
+  it.runIf(win)("tree-kills the pid when claude is still alive after 2 s", () => {
+    vi.useFakeTimers();
+    const { spawn } = fake();
+    const tk = vi.fn();
+    new ChatHub(spawn, "c", 3, tk).open("a", "c")!.kill();
+    vi.advanceTimersByTime(1999);
+    expect(tk).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(tk).toHaveBeenCalledWith(4242);
+  });
+
+  it("no tree-kill when exit arrived first", () => {
+    vi.useFakeTimers();
+    const { spawn, procs } = fake();
+    const tk = vi.fn();
+    new ChatHub(spawn, "c", 3, tk).open("a", "c")!.kill();
+    procs[0].exit(0);
+    vi.advanceTimersByTime(5000);
+    expect(tk).not.toHaveBeenCalled();
+    expect(procs[0].kill).not.toHaveBeenCalled();
+  });
+
+  it.runIf(!win)("falls back to proc.kill() off Windows", () => {
+    vi.useFakeTimers();
+    const { spawn, procs } = fake();
+    new ChatHub(spawn, "c", 3, vi.fn()).open("a", "c")!.kill();
+    vi.advanceTimersByTime(2000);
+    expect(procs[0].kill).toHaveBeenCalledTimes(1);
+  });
+
+  it.runIf(win)("killAll tree-kills at once", () => {
+    const { spawn } = fake();
+    const tk = vi.fn();
+    const hub = new ChatHub(spawn, "c", 3, tk);
+    hub.open("a", "c");
+    hub.killAll();
+    expect(tk).toHaveBeenCalledWith(4242);
     expect(hub.size).toBe(0);
   });
 });

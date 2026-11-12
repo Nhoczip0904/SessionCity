@@ -134,7 +134,7 @@ describe("openChat", () => {
     expect(links.length).toBe(1);
     expect(links[0].getAttribute("href")).toBe("https://a.b");
     expect(links[0].getAttribute("target")).toBe("_blank");
-    expect(links[0].getAttribute("rel")).toBe("noopener");
+    expect(links[0].getAttribute("rel")).toBe("noopener noreferrer");
   });
   it("user text and tool text are not parsed as html", () => {
     const { frame } = setup();
@@ -289,5 +289,27 @@ describe("openChat", () => {
     expect(b.disabled).toBe(true);
     b.click();
     expect(sent()).toEqual([]);
+  });
+  it("a permission request from a subagent still shows a card", () => {
+    const { ev } = setup();
+    ev({ type: "control_request", request_id: "r9", parent_tool_use_id: "toolu_x", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } } });
+    expect(document.querySelector(".perm")).not.toBeNull();
+    ev({ type: "assistant", parent_tool_use_id: "toolu_x", message: { id: "m", content: [{ type: "text", text: "sub" }] } });
+    expect(document.querySelector(".msg.claude")).toBeNull();
+  });
+  it("Esc during IME composition does not stop claude", () => {
+    const { sent } = setup();
+    say("go");
+    textarea().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", isComposing: true, bubbles: true }));
+    expect(sent().filter((m) => m.t === "stop")).toEqual([]);
+    textarea().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(sent().at(-1)).toEqual({ t: "stop" });
+  });
+  it("openTerminal does nothing while a chat is open", () => {
+    setup();
+    const makeTerm = vi.fn();
+    openTerminal({ sessionId: "abc", title: "p", token: "t", onClose: vi.fn() }, { makeTerm, WebSocket: FakeWS as unknown as typeof WebSocket } as unknown as TermDeps);
+    expect(makeTerm).not.toHaveBeenCalled();
+    expect(document.querySelector(".term-overlay")).toBeNull();
   });
 });
