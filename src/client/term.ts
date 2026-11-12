@@ -68,7 +68,7 @@ export function openTerminal(opts: { sessionId: string; title: string; token: st
   const close = () => {
     current = null;
     window.removeEventListener("resize", onResize);
-    ws.onclose = null;
+    ws.onclose = ws.onmessage = null; // no writes into a disposed xterm
     ws.close();
     term.dispose();
     root.remove();
