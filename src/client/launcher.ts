@@ -124,7 +124,7 @@ export function renderModelRules(state: ExploreState, onToggle: (enabled: boolea
   cb.type = "checkbox";
   cb.checked = state === "on";
   cb.disabled = state === "user";
-  const msg = el("div", state === "user" ? "Bạn đã có Explore.md riêng — BackendCity không sửa file này" : STATE_TEXT[state], "msg");
+  const msg = el("div", state === "user" ? "Bạn đã có Explore.md riêng — SessionCity không sửa file này" : STATE_TEXT[state], "msg");
   cb.onchange = async () => {
     const want = cb.checked;
     cb.disabled = true;
@@ -132,7 +132,7 @@ export function renderModelRules(state: ExploreState, onToggle: (enabled: boolea
     if (r === "on" || r === "off" || r === "user") {
       cb.checked = r === "on";
       cb.disabled = r === "user";
-      msg.textContent = r === "user" ? "Bạn đã có Explore.md riêng — BackendCity không sửa file này" : STATE_TEXT[r];
+      msg.textContent = r === "user" ? "Bạn đã có Explore.md riêng — SessionCity không sửa file này" : STATE_TEXT[r];
     } else {
       cb.checked = !want;
       cb.disabled = false;

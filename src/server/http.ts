@@ -170,7 +170,7 @@ export async function startServer(opts: {
     try {
       json(res, 200, { state: enabled === undefined ? exploreState(opts.agentsDir) : setExplore(opts.agentsDir, enabled) });
     } catch (e) {
-      if (e instanceof UserOwnedError) return json(res, 409, { error: "Bạn đã có Explore.md riêng — BackendCity không sửa file này" });
+      if (e instanceof UserOwnedError) return json(res, 409, { error: "Bạn đã có Explore.md riêng — SessionCity không sửa file này" });
       json(res, 500, { error: "Không đọc/ghi được Explore.md" });
     }
   }

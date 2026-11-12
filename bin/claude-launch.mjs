@@ -31,7 +31,7 @@ export async function runJob(jobPath, deps = defaults) {
   try {
     job = JSON.parse(d.fs.readFileSync(jobPath, "utf8"));
   } catch {
-    d.err("Không đọc được tệp công việc BackendCity");
+    d.err("Không đọc được tệp công việc SessionCity");
     return d.exit(1);
   }
   quiet(() => d.fs.unlinkSync(jobPath));
