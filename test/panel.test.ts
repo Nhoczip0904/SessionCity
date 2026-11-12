@@ -129,6 +129,33 @@ describe("Panel", () => {
     vi.useRealTimers();
   });
 
+  it("session panel has an Open in Claude Desktop button; the result shows and outlives a redraw", async () => {
+    const root = document.createElement("div");
+    const fetchDetail = vi.fn().mockResolvedValue(session({ id: "s1" }));
+    const openDesktop = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce("Không mở được Claude Desktop");
+    const p = new Panel(root, fetchDetail, openDesktop);
+    await p.open("session", "s1");
+    const btn = () => root.querySelector("button.desktop") as HTMLButtonElement;
+    expect(btn().textContent).toContain("Mở trong Claude Desktop");
+    btn().click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(openDesktop).toHaveBeenCalledWith("s1");
+    expect(root.textContent).toContain("Đã mở trong Claude Desktop");
+    p.onDelta(delta("s1"));
+    await vi.advanceTimersByTimeAsync(1000); // body redrawn
+    expect(root.textContent).toContain("Đã mở trong Claude Desktop");
+    btn().click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(root.textContent).toContain("Không mở được Claude Desktop");
+  });
+  it("no Desktop button for an employee, or without an opener", async () => {
+    const root = document.createElement("div");
+    const p = new Panel(root, vi.fn().mockResolvedValue(employee()), vi.fn());
+    await p.open("employee", "e1");
+    expect(root.querySelector("button.desktop")).toBeNull();
+    expect(renderSession(session(), NOW, () => {}).querySelector("button.desktop")).toBeNull();
+  });
+
   it("Panel shows ended banner on gone and keeps content", async () => {
     const root = document.createElement("div");
     const fetchDetail = vi.fn().mockResolvedValueOnce(session({ project: "keepme" })).mockResolvedValueOnce("gone");

@@ -38,6 +38,8 @@ export async function startServer(opts: {
   agentsDir: string;
   claudeDir: string;
   launcher: (opts: LaunchOpts) => Promise<void>;
+  /** Runs `claude --desktop --resume <id>` so the session opens in the Claude Desktop app. */
+  openDesktop?: (sessionId: string, cwd: string | undefined) => Promise<void>;
 }): Promise<{ url: string; close(): Promise<void> }> {
   const { token, store } = opts;
   const clientRoot = resolve(opts.clientDir);
@@ -114,6 +116,20 @@ export async function startServer(opts: {
     }
   };
 
+  async function desktopRoute(req: IncomingMessage, res: ServerResponse, sessionId: string) {
+    if ((await readJson(req, res)) === undefined) return;
+    // only a session the store is watching, and only an id shaped like one: it goes on a command line
+    const s = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(sessionId) ? store.detailSession(sessionId) : undefined;
+    if (!s) return json(res, 404, { error: "not found" });
+    try {
+      if (!opts.openDesktop) throw new Error("no claude");
+      await opts.openDesktop(sessionId, s.cwd && isDir(s.cwd) ? s.cwd : undefined);
+      json(res, 200, { ok: true });
+    } catch {
+      json(res, 500, { error: "Không mở được Claude Desktop" });
+    }
+  }
+
   async function launchRoute(req: IncomingMessage, res: ServerResponse) {
     const body = await readJson(req, res);
     if (body === undefined || res.headersSent) return;
@@ -168,13 +184,23 @@ export async function startServer(opts: {
       return send(res, 400, "bad request");
     }
     const api = url.pathname.startsWith("/api/");
-    const allowed = url.pathname === "/api/launch" ? ["POST"] : url.pathname === "/api/agents/explore" ? ["GET", "PUT"] : ["GET"];
+    const desk = /^\/api\/session\/([^/]+)\/desktop$/.exec(url.pathname);
+    const allowed = url.pathname === "/api/launch" || desk ? ["POST"] : url.pathname === "/api/agents/explore" ? ["GET", "PUT"] : ["GET"];
     if (!allowed.includes(req.method ?? "")) return send(res, 405, "method not allowed");
     if (api) {
       if (!tokenOk(token, url.searchParams.get("token"))) return send(res, 401, "unauthorized");
       if (url.pathname === "/api/launch") return void launchRoute(req, res);
       if (url.pathname === "/api/agents/explore") return void exploreRoute(req, res);
       if (url.pathname === "/api/state") return send(res, 200, JSON.stringify(store.snapshot()), TYPES[".json"]);
+      if (desk) {
+        let sid: string;
+        try {
+          sid = decodeURIComponent(desk[1]!);
+        } catch {
+          return json(res, 400, { error: "bad request" });
+        }
+        return void desktopRoute(req, res, sid);
+      }
       const sh = /^\/api\/session\/([^/]+)\/shelf(?:\/([^/]+))?$/.exec(url.pathname);
       if (sh) {
         let sid: string, item: string | undefined;
