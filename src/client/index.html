@@ -81,6 +81,11 @@
       .dialog button.go { margin-top: 8px; }
       .dialog button.go:disabled { opacity: 0.5; cursor: default; }
       @media (max-width: 599px) { #panel { width: 100%; top: 0; border-left: 0; } }
+      .term-overlay { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.6); }
+      .term-box { display: flex; flex-direction: column; width: 80vw; height: 80vh; background: #121216; border: 2px solid #000; }
+      .term-bar { display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; background: #1c1c22; color: #fff; font-size: 13px; }
+      .term-bar .close { background: none; border: 0; color: #eee; font: inherit; font-size: 16px; cursor: pointer; }
+      .term-body { flex: 1; min-height: 0; padding: 4px; }
     </style>
   </head>
   <body>
