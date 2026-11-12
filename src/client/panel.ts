@@ -212,6 +212,7 @@ export class Panel {
   private async openOverlay(kind: "chat" | "terminal", d: SessionDetail) {
     if (d.status !== "idle" && !(await this.overlays!.confirm(BUSY_CONFIRM))) return;
     this.overlays![kind](d);
+    void this.refresh(); // lock both buttons now, not at the next poll
   }
 
   private async refresh() {
