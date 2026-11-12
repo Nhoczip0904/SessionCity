@@ -49,17 +49,26 @@ describe("deskSpots", () => {
     expect(new Set(s.map((p) => `${p.x},${p.y}`)).size).toBe(12);
     for (const p of s) expect(p.x >= 7 && p.x <= 8).toBe(false); // the aisle to the door stays free
   });
-  it("site: 12 builders in two rows, each behind a 2-wide wall, aisle to the door free", () => {
+  it("site: 12 builders scattered, not on a grid, none overlapping, clear of the tape zone and the door", () => {
     const s = deskSpots(12, "site");
     expect(s).toHaveLength(12);
     expect(s.some((p) => p.big || p.back)).toBe(false);
-    expect([...new Set(s.map((p) => p.y))]).toEqual([6, 9]);
-    for (const p of s) expect(p.x + 1 >= 7 && p.x <= 8).toBe(false);
+    expect(new Set(s.map((p) => p.y)).size).toBeGreaterThan(2); // not two neat rows
+    expect(new Set(s.map((p) => p.x)).size).toBeGreaterThan(6);
+    for (const p of s) {
+      expect(p.x).toBeGreaterThanOrEqual(0); expect(p.x + 1).toBeLessThan(16);
+      expect(p.y).toBeGreaterThanOrEqual(4); expect(p.y + 1).toBeLessThan(11); // job row above the door row
+      if (p.x + 1 >= 4 && p.x <= 11) expect(p.y).toBeGreaterThanOrEqual(6); // below the taped-off zone
+    }
+    for (const a of s) for (const b of s) if (a !== b) expect(Math.abs(a.x - b.x) >= 3 || Math.abs(a.y - b.y) >= 2).toBe(true);
+    expect(deskSpots(12, "site")).toEqual(s); // same scatter every time the room is drawn
   });
-  it("site: every row has all 6 jobs, and the rows differ column by column", () => {
+  it("site: every job is there twice", () => {
+    const jobs = deskSpots(12, "site").map(siteJob);
+    for (const j of SITE_JOBS) expect(jobs.filter((x) => x === j)).toHaveLength(2);
     const s = deskSpots(12, "site");
-    for (const y of [6, 9]) expect(new Set(s.filter((p) => p.y === y).map(siteJob))).toEqual(new Set(SITE_JOBS));
-    for (const p of s.filter((q) => q.y === 6)) expect(siteJob(p)).not.toBe(siteJob({ x: p.x, y: 9 }));
+    for (const a of s) for (const b of s)
+      if (a !== b && Math.abs(a.x - b.x) <= 4 && Math.abs(a.y - b.y) <= 3) expect(siteJob(a)).not.toBe(siteJob(b)); // neighbours differ
   });
   it("hall: one big desk, the rest are chairs", () => {
     const s = deskSpots(12, "hall");

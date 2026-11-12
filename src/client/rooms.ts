@@ -121,9 +121,34 @@ export function roomOccupants(d: District, sessions: Session[], employees: Emplo
 
 export const SITE_JOBS = ["bricks", "weld", "mixer", "saw", "paint", "drill"] as const;
 export type SiteJob = (typeof SITE_JOBS)[number];
-const SITE_COLS = [1, 3, 5, 9, 11, 13];
-/** What the builder at a site spot does: all six jobs on each row, the back row shifted by three. */
-export const siteJob = (p: Pt): SiteJob => SITE_JOBS[(SITE_COLS.indexOf(p.x) + (p.y === 6 ? 0 : 3)) % SITE_JOBS.length];
+/** 12 builder spots scattered over the floor (standing on row y, the job on row y+1), each job twice and never
+ *  the same job as a spot close by. Seeded: the first seed where everything fits wins, so it never changes. */
+const SITE: { spots: Pt[]; jobs: SiteJob[] } = (() => {
+  const near = (a: Pt, b: Pt) => Math.abs(a.x - b.x) <= 4 && Math.abs(a.y - b.y) <= 3;
+  for (let start = 1; ; start++) {
+    let seed = start;
+    const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const spots: Pt[] = [];
+    const free = (p: Pt) =>
+      (p.x + 1 < 4 || p.x > 11 || p.y >= 6) && // below the taped-off zone
+      spots.every((q) => Math.abs(p.x - q.x) >= 3 || Math.abs(p.y - q.y) >= 2); // room for the job and the name label
+    for (let i = 0; spots.length < MAX_DESKS && i < 2000; i++) {
+      const p = { x: Math.floor(rand() * 15), y: 4 + Math.floor(rand() * 6) };
+      if (free(p)) spots.push(p);
+    }
+    if (spots.length < MAX_DESKS) continue;
+    const jobs: SiteJob[] = [];
+    for (const [i, p] of spots.entries()) {
+      const j = SITE_JOBS.find((j) => jobs.filter((x) => x === j).length < 2 && !spots.some((q, k) => k < i && jobs[k] === j && near(p, q)));
+      if (!j) break;
+      jobs.push(j);
+    }
+    if (jobs.length === MAX_DESKS) return { spots, jobs };
+  }
+})();
+const SITE_SPOTS = SITE.spots;
+/** What the builder at a site spot does. */
+export const siteJob = (p: Pt): SiteJob => SITE.jobs[Math.max(0, SITE_SPOTS.findIndex((q) => q.x === p.x && q.y === p.y))];
 
 export function deskSpots(n: number, layout: Layout = "office"): Spot[] {
   const out: Spot[] = [];
@@ -131,7 +156,7 @@ export function deskSpots(n: number, layout: Layout = "office"): Spot[] {
     out.push({ x: 7, y: 3, big: true }); // the one desk, 3 wide on the stage
     for (const y of [5, 7, 9]) for (const x of [2, 5, 10, 13]) if (out.length < MAX_DESKS) out.push({ x, y }); // a chair, no desk
   } else if (layout === "site") {
-    for (const y of [6, 9]) for (const x of SITE_COLS) out.push({ x, y }); // standing on row y, the job on row y+1
+    out.push(...SITE_SPOTS.map((p) => ({ ...p })));
   } else if (layout === "lounge") {
     for (const y of [5, 10]) for (const x of [1, 3, 5, 10, 12, 14]) out.push({ x, y }); // an armchair, rows y-1..y; coffee table between the rows
   } else {
