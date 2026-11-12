@@ -1,5 +1,5 @@
 import { Graphics } from "pixi.js";
-import type { Decor } from "./rooms.js";
+import type { Decor, SiteJob } from "./rooms.js";
 
 const T = 16;
 /** Left/right wall panels beside the board (board spans x 50–206 on rows 0–1). */
@@ -153,6 +153,72 @@ export function decorUnder(kind: Decor, anim: Anim) {
         g.rect(x0, y1, w, 3).fill(0x4a2c14).rect(x0, y1 + 3, w, 2).fill({ color: 0x000000, alpha: 0.25 });
         g.circle(8 * T, 2.9 * T, 22).fill({ color: 0xfff0b0, alpha: 0.12 + 0.03 * Math.sin(t / 700) }); // spotlight on the big desk
       });
+  }
+}
+
+/** One builder's job at the site, 2 tiles wide on the row (wx, wy); animated while `on`, `p` = per-spot phase. */
+export function drawSiteJob(g: Graphics, job: SiteJob, wx: number, wy: number, t: number, on: boolean, p: number) {
+  const W = 2 * T, base = wy + T - 2;
+  const blink = on && Math.floor(t / 120 + p) % 2 === 1;
+  g.clear().rect(wx, base, W, 2).fill(0x6e6a64); // footing
+  switch (job) {
+    case "bricks": {
+      const n = on ? Math.min(16, Math.floor(t / 500 + p) % 22) : 6;
+      for (let i = 0; i < n; i++) {
+        const row = Math.floor(i / 4), col = i % 4, odd = row % 2 === 1;
+        // odd courses are staggered: three full bricks and a half brick at the left end
+        const [bx, bw] = odd ? (col === 3 ? [0, 3] : [col * 8 + 4, 7]) : [col * 8, 7];
+        g.rect(wx + bx, base - 4 - row * 4, bw, 3).fill(odd ? 0xb5523b : 0xa8472f);
+      }
+      if (blink && n < 16) g.rect(wx + (n % 4) * 8 + 3, base - 6 - Math.floor(n / 4) * 4, 2, 1).fill(0xffe066);
+      break;
+    }
+    case "weld": { // steel I-beam on two trestles, a torch walking along the seam
+      for (const lx of [wx + 4, wx + W - 6]) g.rect(lx, base - 6, 2, 6).fill(0x5a5a60);
+      g.rect(wx + 1, base - 12, W - 2, 2).fill(0x8a929c).rect(wx + 1, base - 10, W - 2, 3).fill(0x6a727c).rect(wx + 1, base - 7, W - 2, 2).fill(0x8a929c);
+      if (on) {
+        const sx = wx + 3 + ((t / 30 + p * 5) % (W - 6));
+        g.circle(sx, base - 9, 5).fill({ color: 0x9ad0ff, alpha: 0.25 }).rect(sx - 1, base - 10, 2, 2).fill(0xffffff);
+        for (let k = 0; k < 4; k++) g.rect(sx + Math.sin(t / 50 + k * 1.7) * 5, base - 10 - Math.abs(Math.cos(t / 70 + k)) * 6, 1, 1).fill(k % 2 ? 0xffe066 : 0xff9a30);
+      }
+      break;
+    }
+    case "mixer": { // cement mixer, the drum turns while working
+      const cx = wx + 14, cy = base - 8, a = on ? t / 250 : p;
+      g.rect(wx + 6, base - 3, 2, 3).fill(0x444444).rect(wx + 20, base - 3, 2, 3).fill(0x444444);
+      g.circle(cx, cy, 7).fill(0xe07a20).circle(cx, cy, 7).stroke({ color: 0x8a4a10, width: 1 });
+      for (let k = 0; k < 3; k++) {
+        const ang = a + (k * 2 * Math.PI) / 3;
+        g.moveTo(cx, cy).lineTo(cx + Math.cos(ang) * 6, cy + Math.sin(ang) * 6).stroke({ color: 0x8a4a10, width: 1 });
+      }
+      g.rect(wx + 22, base - 9, 8, 7).fill(0x9a9690); // cement bags
+      if (on && blink) g.rect(cx + 7, cy - 1, 2, 2).fill(0xbdb8b0);
+      break;
+    }
+    case "saw": { // plank on sawhorses, the saw goes back and forth and sawdust falls
+      for (const lx of [wx + 4, wx + W - 6]) g.moveTo(lx, base).lineTo(lx + 2, base - 7).lineTo(lx + 4, base).stroke({ color: 0x7a5a3a, width: 1 });
+      g.rect(wx, base - 10, W, 3).fill(0xc89a5a).rect(wx, base - 10, W, 1).fill(0xe0b878);
+      const sx = wx + 16 + (on ? Math.sin(t / 90) * 4 : 0);
+      g.rect(sx, base - 16, 1, 9).fill(0xc0c4c8).rect(sx - 1, base - 18, 3, 3).fill(0x7a3a2a);
+      if (on) for (let k = 0; k < 3; k++) g.rect(wx + 16 + k * 2 - 2, base - 6 + ((t / 60 + k * 4) % 6), 1, 1).fill(0xe0c890);
+      break;
+    }
+    case "paint": { // a plastered wall section, painted blue left to right with a roller
+      g.rect(wx + 1, base - 15, W - 2, 15).fill(0xd8d2c4);
+      const done = on ? ((t / 80 + p * 10) % (W + 10)) : W * 0.4;
+      const pw = Math.min(W - 2, done);
+      g.rect(wx + 1, base - 15, pw, 15).fill(0x4a8ad0);
+      if (pw < W - 2) g.rect(wx + 1 + pw - 1, base - 15 + (on ? Math.abs(Math.sin(t / 150)) * 10 : 5), 3, 4).fill(0xf0f0f0);
+      g.rect(wx + W - 6, base - 3, 5, 3).fill(0x3a6aa0); // paint tin
+      break;
+    }
+    case "drill": { // rubble pile under a jackhammer, dust while working
+      const shake = on ? Math.sin(t / 25) : 0;
+      for (const [rx, ry, r, c] of [[8, 3, 4, 0x8a8478], [15, 4, 5, 0x9a9488], [23, 3, 4, 0x7a746a]] as const) g.circle(wx + rx + shake * 0.5, base - ry, r).fill(c);
+      g.rect(wx + 15 + shake, base - 14, 2, 8).fill(0x3a3a3a).rect(wx + 12 + shake, base - 16, 8, 2).fill(0xf2c200);
+      if (on) for (let k = 0; k < 3; k++) g.circle(wx + 10 + k * 6, base - 6 - ((t / 70 + k * 3) % 6), 1.5).fill({ color: 0xd8d0c0, alpha: 0.6 });
+      break;
+    }
   }
 }
 

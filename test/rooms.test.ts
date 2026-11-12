@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Employee, Session, SessionDetail } from "../src/shared/types.js";
-import { deskSpots, fileRows, officeLayout, roomOccupants, tokenRows } from "../src/client/rooms.js";
+import { SITE_JOBS, deskSpots, siteJob, fileRows, officeLayout, roomOccupants, tokenRows } from "../src/client/rooms.js";
 
 const z = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const sess = (o: Partial<Session>): Session => ({ id: "s", project: "p", cwd: "", lastActivity: "", status: "working", district: "lab", tokens: { ...z, byModel: {} }, employees: [], ...o });
@@ -55,6 +55,11 @@ describe("deskSpots", () => {
     expect(s.some((p) => p.big || p.back)).toBe(false);
     expect([...new Set(s.map((p) => p.y))]).toEqual([6, 9]);
     for (const p of s) expect(p.x + 1 >= 7 && p.x <= 8).toBe(false);
+  });
+  it("site: every row has all 6 jobs, and the rows differ column by column", () => {
+    const s = deskSpots(12, "site");
+    for (const y of [6, 9]) expect(new Set(s.filter((p) => p.y === y).map(siteJob))).toEqual(new Set(SITE_JOBS));
+    for (const p of s.filter((q) => q.y === 6)) expect(siteJob(p)).not.toBe(siteJob({ x: p.x, y: 9 }));
   });
   it("hall: one big desk, the rest are chairs", () => {
     const s = deskSpots(12, "hall");
