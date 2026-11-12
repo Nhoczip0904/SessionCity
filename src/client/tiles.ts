@@ -121,7 +121,6 @@ export type Frame = readonly [number, number];
 export const CHAR_BODY: Frame = [0, 0];
 export const PANTS: Frame = [3, 0], SHOES: Frame = [4, 0];
 export const HAIR: Frame = [19, 0], MAYOR_HAIR: Frame = [23, 0];
-export const HAT: Frame = [28, 8];
 /** Long white hair down to the shoulders, tinted per person for the anime look. */
 export const LONG_HAIR: Frame = [20, 8];
 export const ANIME_HAIR = [0xff8ac8, 0x7ac8ff, 0xb89aff, 0x7ae8c0, 0xffe07a, 0xe8e8f0, 0xff7a7a, 0xffb070];
@@ -133,8 +132,8 @@ export const SHIRT_COLORS: Frame[] = [[6, 0], [10, 0], [14, 0], [6, 5], [10, 5],
 export const TSHIRT: Frame = [0, 0], SHIRT: Frame = [1, 0], JACKET: Frame = [1, 1], SUIT: Frame = [2, 1];
 
 /** `own`: `shirt` is an offset inside the session's colour block; otherwise an absolute frame. */
-export interface Outfit { shirt: Frame; own: boolean; hair: Frame; hat?: Frame; item?: Frame }
-export const OUTFIT_MAYOR: Outfit = { shirt: SUIT, own: true, hair: MAYOR_HAIR, hat: HAT };
+export interface Outfit { shirt: Frame; own: boolean; hair: Frame; item?: Frame }
+export const OUTFIT_MAYOR: Outfit = { shirt: SUIT, own: true, hair: MAYOR_HAIR };
 export const OUTFIT_EXPLORE: Outfit = { shirt: JACKET, own: true, hair: HAIR, item: MAGNIFIER };
 export const OUTFIT_PLAN: Outfit = { shirt: SHIRT, own: true, hair: HAIR, item: SCROLL };
 export const OUTFIT_GENERAL: Outfit = { shirt: TSHIRT, own: true, hair: HAIR };

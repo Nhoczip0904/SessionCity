@@ -198,7 +198,6 @@ export class Actors {
     px(5, 6, 1, 1, 0xff8aa0, 0.8); px(10, 6, 1, 1, 0xff8aa0, 0.8); // blush
     fig.addChild(face);
     add(K.LONG_HAIR, K.ANIME_HAIR[look % K.ANIME_HAIR.length]);
-    if (outfit.hat) add(outfit.hat);
     if (outfit.item) add(outfit.item);
     return fig;
   }
