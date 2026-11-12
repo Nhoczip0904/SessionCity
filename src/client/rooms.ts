@@ -45,7 +45,7 @@ export const ROOM_THEMES: Partial<Record<District, RoomTheme>> = {
   // studio: cork pinboard full of sticky notes, blueprint table
   design: { floor: 0xc49a68, wall: 0xa9d2f0, kind: "wood", windows: [14], decor: "pinboard", rugs: [[5.5, 2.6, 5, 3, 0x2f5f9f]], props: [
     row(K.IN_CHART, 4), row(K.IN_BENCH, 10), one(K.IN_PLANT, 15), block(K.IN_OVAL_TABLE, 2, 7, 3), ...corners] },
-  // building site: hazard tape, cones, crates, ladders; every builder lays bricks on a wall of their own
+  // building site: hazard tape, cones, crates, ladders; builders lay bricks, weld, mix, saw, paint and drill
   site: { floor: 0x9a8f80, wall: 0xe0b060, kind: "concrete", windows: [14], decor: "worksite", layout: "site", props: [
     tall(K.IN_LADDER, 0), tall(K.IN_LADDER, 1), city(K.CRATE, 6, 3), city(K.CRATE, 7, 3), city(K.BARREL, 9, 3), city(K.CONE, 5, 4), city(K.CONE, 10, 4),
     city(K.BARRIER, 3, 2), city(K.BARRIER, 12, 2)] },
@@ -119,13 +119,19 @@ export function roomOccupants(d: District, sessions: Session[], employees: Emplo
   return cap([...mayors, ...staff]);
 }
 
+export const SITE_JOBS = ["bricks", "weld", "mixer", "saw", "paint", "drill"] as const;
+export type SiteJob = (typeof SITE_JOBS)[number];
+const SITE_COLS = [1, 3, 5, 9, 11, 13];
+/** What the builder at a site spot does: all six jobs on each row, the back row shifted by three. */
+export const siteJob = (p: Pt): SiteJob => SITE_JOBS[(SITE_COLS.indexOf(p.x) + (p.y === 6 ? 0 : 3)) % SITE_JOBS.length];
+
 export function deskSpots(n: number, layout: Layout = "office"): Spot[] {
   const out: Spot[] = [];
   if (layout === "hall") {
     out.push({ x: 7, y: 3, big: true }); // the one desk, 3 wide on the stage
     for (const y of [5, 7, 9]) for (const x of [2, 5, 10, 13]) if (out.length < MAX_DESKS) out.push({ x, y }); // a chair, no desk
   } else if (layout === "site") {
-    for (const y of [6, 9]) for (const x of [1, 3, 5, 9, 11, 13]) out.push({ x, y }); // standing on row y, wall on row y+1
+    for (const y of [6, 9]) for (const x of SITE_COLS) out.push({ x, y }); // standing on row y, the job on row y+1
   } else if (layout === "lounge") {
     for (const y of [5, 10]) for (const x of [1, 3, 5, 10, 12, 14]) out.push({ x, y }); // an armchair, rows y-1..y; coffee table between the rows
   } else {

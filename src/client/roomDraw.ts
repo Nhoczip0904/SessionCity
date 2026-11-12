@@ -1,7 +1,7 @@
 import { Container, Graphics, Rectangle, Sprite, Text } from "pixi.js";
 import type { Pt } from "./path.js";
-import { decorOver, decorUnder, type Anim } from "./roomDecor.js";
-import { BOARD_W, BOARD_X, MAX_DESKS, ROOM_COLS, ROOM_ROWS, deskSpots, type Furniture, type RoomTheme } from "./rooms.js";
+import { decorOver, decorUnder, drawSiteJob, type Anim } from "./roomDecor.js";
+import { BOARD_W, BOARD_X, MAX_DESKS, ROOM_COLS, ROOM_ROWS, deskSpots, siteJob, type Furniture, type RoomTheme } from "./rooms.js";
 import * as K from "./tiles.js";
 import type { Sheets } from "./tiles.js";
 
@@ -200,32 +200,19 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
       return c;
     }
     if (site) {
-      // a builder in a hard hat behind a 2-wide brick wall; while working the bricks go up one by one
+      // a builder in a hard hat behind their job (bricks, beam, mixer, saw, paint, drill), animated while working
       blob(cx, (y + 2) * T - 1, w * T * 0.45);
       if (fig) {
         fig.position.set(Math.round(cx), (y + 1) * T + 6);
         const top = fig.y - fig.height;
         c.addChild(fig, new Graphics().rect(cx - 4, top - 1, 8, 3).fill(0xf2c200).rect(cx - 5, top + 1, 10, 1).fill(0xc89a00));
       }
-      const wall = new Graphics();
-      wall.eventMode = "none";
-      const wx = left * T, wy = (y + 1) * T, phase = (x * 7 + y * 3) % 16;
-      const bricks = (n: number, t: number) => {
-        wall.clear().rect(wx, wy + T - 2, w * T, 2).fill(0x6e6a64); // footing
-        for (let i = 0; i < n; i++) {
-          const row = Math.floor(i / 4), col = i % 4, odd = row % 2 === 1;
-          // odd courses are staggered: three full bricks and a half brick at the left end
-          const [bx, bw] = odd ? (col === 3 ? [0, 3] : [col * 8 + 4, 7]) : [col * 8, 7];
-          wall.rect(wx + bx, wy + T - 6 - row * 4, bw, 3).fill(odd ? 0xb5523b : 0xa8472f);
-        }
-        if (on && n < 16 && Math.floor(t / 120) % 2) { // sparks where the next brick goes
-          const row = Math.floor(n / 4), col = n % 4;
-          wall.rect(wx + col * 8 + 3, wy + T - 8 - row * 4, 1, 1).fill(0xffe066).rect(wx + col * 8 + 5, wy + T - 9 - row * 4, 1, 1).fill(0xffffff);
-        }
-      };
-      if (on) wall.onRender = () => { const t = performance.now(); bricks(Math.min(16, Math.floor(t / 500 + phase) % 22), t); };
-      bricks(on ? phase : 6, 0); // empty spot: a half-built wall
-      c.addChild(wall);
+      const job = new Graphics();
+      job.eventMode = "none";
+      const kind = siteJob({ x, y }), wx = left * T, wy = (y + 1) * T, phase = (x * 7 + y * 3) % 16;
+      if (on) job.onRender = () => drawSiteJob(job, kind, wx, wy, performance.now(), true, phase);
+      drawSiteJob(job, kind, wx, wy, 0, on, phase);
+      c.addChild(job);
       return c;
     }
     if (lounge) {
