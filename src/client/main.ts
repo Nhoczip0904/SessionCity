@@ -11,6 +11,7 @@ import { drawRoom, type Seat } from "./roomDraw.js";
 import { Scene, type Place } from "./scene.js";
 import { renderFilesDialog, renderShelfDialog, renderTokenDialog } from "./shelfDialog.js";
 import { flyPaper, handoffs } from "./handoff.js";
+import { isChatOpen, openChat } from "./chat.js";
 import { isTerminalOpen, openTerminal } from "./term.js";
 import { Panel, type Detail, type Kind } from "./panel.js";
 import { loadSheets } from "./tiles.js";
@@ -119,10 +120,14 @@ async function main() {
   };
   const panelRoot = document.getElementById("panel")!;
   const panel = new Panel(panelRoot, fetchDetail, {
-    isOpen: isTerminalOpen,
-    open: (d) => openTerminal({ sessionId: d.id, title: d.project, token, onClose: () => void panel.open("session", d.id) }),
+    isOpen: () => (isChatOpen() ? "chat" : isTerminalOpen() ? "terminal" : null),
+    chat: (d) => openChat({ sessionId: d.id, title: d.project, token, onClose: () => refreshIfShown(d.id) }),
+    terminal: (d) => openTerminal({ sessionId: d.id, title: d.project, token, onClose: () => refreshIfShown(d.id) }),
     confirm: (t) => confirmDialog(t, "Vẫn mở", "Huỷ"),
   });
+  const refreshIfShown = (id: string) => {
+    if (panel.shows("session", id)) void panel.open("session", id);
+  };
   const onPick = (kind: Kind, id: string) => {
     tip.hide();
     void panel.open(kind, id);
