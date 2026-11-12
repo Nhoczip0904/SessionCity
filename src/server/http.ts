@@ -10,9 +10,16 @@ import { WebSocket, WebSocketServer } from "ws";
 import type { Store } from "./store.js";
 import { LaunchInputError, validateLaunch, type LaunchOpts } from "./launch.js";
 import { listShelf, readShelfItem } from "./shelf.js";
+import type { Term } from "./pty.js";
 import { exploreState, setExplore, UserOwnedError } from "./agents.js";
 
 const MAX_BODY = 16_384;
+const SESSION_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
+export const clampSize = (v: string | null, def: number, min: number, max: number): number => {
+  const n = Number(v);
+  return v === null || v === "" || !Number.isFinite(n) ? def : Math.min(max, Math.max(min, Math.round(n)));
+};
 
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -39,10 +46,12 @@ export async function startServer(opts: {
   agentsDir: string;
   claudeDir: string;
   launcher: (opts: LaunchOpts) => Promise<void>;
+  pty?: { open(sessionId: string, cwd: string, cols: number, rows: number): Term | null; killAll(): void };
 }): Promise<{ url: string; close(): Promise<void> }> {
   const { token, store } = opts;
   const clientRoot = resolve(opts.clientDir);
   const wss = new WebSocketServer({ noServer: true });
+  const ptyWss = new WebSocketServer({ noServer: true, maxPayload: 65536 });
   let origins: string[] = [];
 
   const send = (res: ServerResponse, status: number, body: string, type = "text/plain; charset=utf-8") => {
@@ -119,7 +128,7 @@ export async function startServer(opts: {
   async function resumeRoute(req: IncomingMessage, res: ServerResponse, sessionId: string) {
     if ((await readJson(req, res)) === undefined) return;
     // only a session the store is watching, and only an id shaped like one: it goes on a command line
-    const s = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(sessionId) ? store.detailSession(sessionId) : undefined;
+    const s = SESSION_ID.test(sessionId) ? store.detailSession(sessionId) : undefined;
     if (!s) return json(res, 404, { error: "not found" });
     try {
       await opts.launcher({ cwd: s.cwd && isDir(s.cwd) ? s.cwd : homedir(), resume: sessionId });
@@ -238,10 +247,42 @@ export async function startServer(opts: {
     } catch {
       return socket.destroy();
     }
-    if (url.pathname !== "/ws") return reject(404, "Not Found");
+    if (url.pathname !== "/ws" && url.pathname !== "/pty") return reject(404, "Not Found");
     if (!tokenOk(token, url.searchParams.get("token"))) return reject(401, "Unauthorized");
     const origin = req.headers.origin;
     if (!origin || !origins.includes(origin)) return reject(403, "Forbidden");
+    if (url.pathname === "/pty") {
+      const sid = url.searchParams.get("session") ?? "";
+      const s = SESSION_ID.test(sid) ? store.detailSession(sid) : undefined; // the id goes on a command line
+      if (!s || !opts.pty) return reject(404, "Not Found");
+      const term = opts.pty.open(
+        sid,
+        s.cwd && isDir(s.cwd) ? s.cwd : homedir(),
+        clampSize(url.searchParams.get("cols"), 120, 20, 400),
+        clampSize(url.searchParams.get("rows"), 32, 5, 200),
+      );
+      if (!term) return reject(503, "Service Unavailable");
+      ptyWss.handleUpgrade(req, socket, head, (ws) => {
+        ws.on("error", () => {});
+        term.onData((d) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(d);
+        });
+        term.onExit((code) => ws.close(4000, String(code)));
+        ws.on("close", () => term.kill());
+        ws.on("message", (raw) => {
+          let m: { t?: unknown; d?: unknown; cols?: unknown; rows?: unknown };
+          try {
+            m = JSON.parse(raw.toString());
+          } catch {
+            return;
+          }
+          if (m?.t === "in" && typeof m.d === "string") term.write(m.d);
+          else if (m?.t === "size" && typeof m.cols === "number" && typeof m.rows === "number")
+            term.resize(clampSize(String(m.cols), 120, 20, 400), clampSize(String(m.rows), 32, 5, 200));
+        });
+      });
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws.on("error", () => {}); // invalid frame / oversized payload: ws closes the socket itself
       ws.send(JSON.stringify({ type: "state", state: store.snapshot() }));
@@ -271,6 +312,9 @@ export async function startServer(opts: {
       timers.forEach(clearInterval);
       for (const c of wss.clients) c.terminate();
       wss.close();
+      for (const c of ptyWss.clients) c.terminate();
+      ptyWss.close();
+      opts.pty?.killAll();
       server.closeAllConnections();
       await new Promise<void>((ok) => server.close(() => ok()));
     },

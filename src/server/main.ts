@@ -3,7 +3,9 @@ import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import * as nodePty from "node-pty";
 import { startServer } from "./http.js";
+import { PtyHub } from "./pty.js";
 import { findOnPath, launch, type LaunchOpts } from "./launch.js";
 import { Store } from "./store.js";
 import { loadConfigRules, packageRoot, Watcher } from "./watch.js";
@@ -32,7 +34,8 @@ const agentsDir = join(homedir(), ".claude", "agents");
 const launcher = claude
   ? (opts: LaunchOpts) => launch(opts, { claude, wt, spawn, tmpDir: tmpdir(), setTimeout })
   : () => Promise.reject(new Error("claude not found"));
-const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), launcher });
+const hub = new PtyHub(nodePty.spawn, claude);
+const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), launcher, pty: hub });
 await watcher.start();
 console.log(server.url);
 if (!claude) console.error("Chưa tìm thấy claude.exe — nút Mở phiên sẽ báo lỗi (cài: winget install Anthropic.ClaudeCode)");
@@ -40,5 +43,6 @@ if (!existsSync(clientDir)) console.error("dist/client not found: run `npm run b
 
 process.on("SIGINT", () => {
   watcher.stop();
+  hub.killAll();
   void server.close().then(() => process.exit(0));
 });
