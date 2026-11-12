@@ -3,7 +3,7 @@ import type { Decor, Job } from "./rooms.js";
 
 const T = 16;
 /** Left/right wall panels beside the board (board spans x 50–206 on rows 0–1). */
-const LEFT = { x: 4, y: 5, w: 42, h: 23 }, RIGHT = { x: 210, y: 5, w: 42, h: 23 };
+export const LEFT = { x: 4, y: 5, w: 42, h: 23 }, RIGHT = { x: 210, y: 5, w: 42, h: 23 };
 const hash = (n: number) => (((n * 2654435761) >>> 0) % 1000) / 1000;
 
 export type Anim = (draw: (g: Graphics, t: number) => void) => void;

@@ -13,6 +13,7 @@ import { listShelf, readShelfItem } from "./shelf.js";
 import type { Term } from "./pty.js";
 import type { Chat } from "./chat.js";
 import type { HistoryItem } from "./history.js";
+import type { RepoPrs } from "../shared/types.js";
 import { exploreState, setExplore, UserOwnedError } from "./agents.js";
 
 const MAX_BODY = 16_384;
@@ -62,6 +63,8 @@ export async function startServer(opts: {
   launcher: (opts: LaunchOpts) => Promise<void>;
   pty?: { open(sessionId: string, cwd: string, cols: number, rows: number): Term | null; killAll(): void; isOpen(sessionId: string): boolean };
   chat?: { open(sessionId: string, cwd: string): Chat | null; killAll(): void; isOpen(sessionId: string): boolean; history(sessionId: string): Promise<HistoryItem[]> };
+  /** open PRs of the sessions' repos; `fresh` skips its cache */
+  prs?: (fresh: boolean) => Promise<RepoPrs[]>;
 }): Promise<{ url: string; close(): Promise<void> }> {
   const { token, store } = opts;
   const clientRoot = resolve(opts.clientDir);
@@ -200,6 +203,10 @@ export async function startServer(opts: {
       if (!tokenOk(token, url.searchParams.get("token"))) return send(res, 401, "unauthorized");
       if (url.pathname === "/api/launch") return void launchRoute(req, res);
       if (url.pathname === "/api/agents/explore") return void exploreRoute(req, res);
+      if (url.pathname === "/api/prs") {
+        const p = opts.prs ? opts.prs(url.searchParams.get("fresh") === "1") : Promise.resolve([]);
+        return void p.then((list) => json(res, 200, list), () => json(res, 500, { error: "internal error" }));
+      }
       if (url.pathname === "/api/state") return send(res, 200, JSON.stringify(store.snapshot()), TYPES[".json"]);
       const sh = /^\/api\/session\/([^/]+)\/shelf(?:\/([^/]+))?$/.exec(url.pathname);
       if (sh) {

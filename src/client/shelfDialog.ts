@@ -1,4 +1,4 @@
-import type { Employee, Shelf } from "../shared/types.js";
+import type { Employee, PrRow, RepoPrs, Shelf } from "../shared/types.js";
 import { el, frame } from "./launcher.js";
 import type { tokenRows } from "./rooms.js";
 
@@ -67,5 +67,54 @@ export function renderShelfDialog(load: () => Promise<Shelf>, read: (id: string)
     shelf = s;
     list();
   }, () => body.replaceChildren(el("div", "Không tải được kệ sách", "msg")));
+  return root;
+}
+
+const REVIEW: Record<NonNullable<PrRow["review"]>, [string, string]> = { approved: ["Đã duyệt", "ok"], changes: ["Cần sửa", "bad"], pending: ["Chờ review", "wait"] };
+const CI: Record<NonNullable<PrRow["ci"]>, [string, string]> = { pass: ["CI ✓", "ok"], fail: ["CI ✗", "bad"], pending: ["CI ⏳", "wait"] };
+
+/** One PR line: a link to GitHub when the server vouched for the URL, plain text otherwise. */
+function prLine(p: PrRow): HTMLElement {
+  const line = p.url ? el("a", undefined, "pr") : el("div", undefined, "pr");
+  if (line instanceof HTMLAnchorElement) {
+    line.href = p.url!;
+    line.target = "_blank";
+    line.rel = "noopener noreferrer";
+  }
+  const meta = el("div", undefined, "meta");
+  meta.append(el("span", `👤 ${p.author ?? "?"}`, "who"));
+  const tags: [string, string][] = [];
+  if (p.draft) tags.push(["Draft", "draft"]);
+  tags.push(p.review ? REVIEW[p.review] : ["Chưa review", "none"], p.ci ? CI[p.ci] : ["Chưa có CI", "none"]);
+  for (const [text, cls] of tags) meta.append(" ", el("span", text, `tag ${cls}`));
+  line.append(el("span", `#${p.number}`, "num"), " ", el("span", p.title, "t"), meta);
+  return line;
+}
+
+/** The review building's board: open PRs of the repos the sessions work in; Làm mới skips the server's cache. */
+export function renderPrDialog(load: (fresh: boolean) => Promise<RepoPrs[]>): HTMLElement {
+  const body = el("div");
+  const refresh = button("Làm mới", "go", () => void show(true));
+  const root = frame("Bảng PR", refresh, body);
+  const show = async (fresh: boolean) => {
+    body.replaceChildren(el("div", "Đang tải…", "msg"));
+    refresh.disabled = true;
+    try {
+      const repos = await load(fresh);
+      body.replaceChildren();
+      if (!repos.length) body.append(el("div", "Chưa có session nào trong repo git", "msg"));
+      for (const r of repos) {
+        body.append(el("h3", r.repo));
+        if (r.error) body.append(el("div", r.error, "note"));
+        else if (!r.prs.length) body.append(el("div", "Không có PR đang mở", "note"));
+        else body.append(...r.prs.map(prLine));
+      }
+    } catch {
+      body.replaceChildren(el("div", "Không tải được danh sách PR", "msg"));
+    } finally {
+      refresh.disabled = false;
+    }
+  };
+  void show(false);
   return root;
 }
