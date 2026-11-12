@@ -119,12 +119,13 @@ export function openChat(opts: { sessionId: string; title: string; token: string
     return b;
   };
   const userMsg = (text: string) => add(el("div", text, "msg user"));
-  const toolRow = (name: string, summary: string) => {
+  const toolRow = (name: string, summary: string, inp?: Record<string, unknown>) => {
     const d = el("details", undefined, "tool");
     const s = el("summary");
-    s.append(el("span", name, "tname"), el("span", summary));
+    s.append(el("span", `\u{1F527} ${name} `, "tname"), el("span", `\u2014 ${summary}`));
     const out = el("pre");
-    d.append(s, out);
+    if (inp) d.append(s, el("pre", (JSON.stringify(inp, null, 2) ?? "").slice(0, MAX_RESULT)), out);
+    else d.append(s, out);
     add(d);
     return out;
   };
@@ -151,7 +152,7 @@ export function openChat(opts: { sessionId: string; title: string; token: string
             cur.live = "";
             render(cur);
           } else if (c.type === "tool_use" && c.id) {
-            tools.set(c.id, toolRow(c.name ?? "tool", mainLine(c.input)));
+            tools.set(c.id, toolRow(c.name ?? "tool", mainLine(c.input), c.input ?? {}));
           }
         }
         return;
@@ -194,9 +195,13 @@ export function openChat(opts: { sessionId: string; title: string; token: string
       case "result": {
         cur = null;
         setAnswering(false);
+        root.querySelectorAll<HTMLButtonElement>(".perm button").forEach((b) => (b.disabled = true)); // unanswered cards are stale
         if (e.is_error && e.subtype === "error_during_execution" && stopped) note("Đã dừng", "foot");
         else if (e.is_error) note(String(e.result ?? e.subtype ?? "error"), "err");
-        else if (typeof e.total_cost_usd === "number") note(`$${e.total_cost_usd.toFixed(4)}`, "foot");
+        else {
+          const parts = [typeof e.duration_ms === "number" ? `${(e.duration_ms / 1000).toFixed(1)}s` : "", typeof e.total_cost_usd === "number" ? `$${e.total_cost_usd.toFixed(4)}` : ""].filter(Boolean);
+          if (parts.length) note(parts.join(" \u00b7 "), "foot");
+        }
         stopped = false;
         return;
       }
@@ -228,12 +233,14 @@ export function openChat(opts: { sessionId: string; title: string; token: string
     note(e.code === 4000 ? `Phiên đã kết thúc (mã ${e.reason})` : "Không kết nối được chat", "err");
   };
 
+  const OPEN = 1; // WebSocket.OPEN: send() throws before this
   const stop = () => {
+    if (ws.readyState !== OPEN) return;
     stopped = true;
     send({ t: "stop" });
   };
   const submit = () => {
-    if (locked) return;
+    if (locked || ws.readyState !== OPEN) return;
     if (answering) return stop();
     const text = input.value.trim();
     if (!text) return;
@@ -249,11 +256,20 @@ export function openChat(opts: { sessionId: string; title: string; token: string
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       if (!answering) submit();
-    } else if (e.key === "Escape" && answering) stop();
+    }
   });
+  // focus can sit on a bubble/button/body: Esc must still stop claude and not reach panel/scene handlers
+  const onDocKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      if (answering) stop();
+    } else if (!root.contains(e.target as Node)) e.stopPropagation();
+  };
+  document.addEventListener("keydown", onDocKey, true);
 
   const close = () => {
     current = null;
+    document.removeEventListener("keydown", onDocKey, true);
     ws.onclose = ws.onmessage = null;
     ws.close();
     root.remove();

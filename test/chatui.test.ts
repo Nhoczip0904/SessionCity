@@ -7,6 +7,7 @@ class FakeWS {
   static last: FakeWS;
   sent: string[] = [];
   closed = false;
+  readyState = 1;
   onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
   onclose: ((e: { code: number; reason: string }) => void) | null = null;
@@ -92,11 +93,11 @@ describe("openChat", () => {
     expect(row.open).toBe(false);
     expect(row.textContent).toContain("ls -la");
     ev({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu1", content: "x".repeat(6000), is_error: false }] }, parent_tool_use_id: null });
-    expect(row.querySelector("pre")!.textContent!.length).toBeLessThanOrEqual(5000);
-    expect(row.querySelector("pre")!.textContent!.length).toBeGreaterThan(4000);
+    expect(row.querySelectorAll("pre")[1]!.textContent!.length).toBeLessThanOrEqual(5000);
+    expect(row.querySelectorAll("pre")[1]!.textContent!.length).toBeGreaterThan(4000);
     ev(asst("m2", { type: "tool_use", id: "tu2", name: "Read", input: {} }));
     ev({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu2", content: [{ type: "text", text: "arr" }] }] }, parent_tool_use_id: null });
-    expect(document.querySelectorAll(".tool")[1].querySelector("pre")!.textContent).toBe("arr");
+    expect(document.querySelectorAll(".tool")[1].querySelectorAll("pre")[1]!.textContent).toBe("arr");
   });
   it("permission card sends allow/deny once and locks", () => {
     const { ev, sent } = setup();
@@ -243,5 +244,50 @@ describe("openChat", () => {
     expect(btn.textContent).toBe("Sao chép");
     btn.click();
     expect(writeText).toHaveBeenCalledWith("let a = 1;\n");
+  });
+  it("tool row shows input json above the result, with prefix", () => {
+    const { ev } = setup();
+    ev(asst("m1", { type: "tool_use", id: "tu1", name: "Bash", input: { command: "ls", big: "z".repeat(6000) } }));
+    const row = $(".tool");
+    expect(row.querySelector("summary")!.textContent).toBe("\u{1F527} Bash — ls");
+    const pres = row.querySelectorAll("pre");
+    expect(pres.length).toBe(2);
+    expect(pres[0].textContent!.startsWith('{\n  "command": "ls"')).toBe(true);
+    expect(pres[0].textContent!.length).toBeLessThanOrEqual(5000);
+  });
+  it("result footer shows duration and cost", () => {
+    const { ev } = setup();
+    say("a");
+    ev({ type: "result", subtype: "success", is_error: false, duration_ms: 8228, total_cost_usd: 0.004 });
+    expect($(".chat-log .foot").textContent).toBe("8.2s · $0.0040");
+  });
+  it("Esc with focus outside the textarea is contained and stops claude", () => {
+    const { sent } = setup();
+    const seen = vi.fn();
+    document.addEventListener("keydown", seen);
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(sent()).toEqual([]);
+    say("go");
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    document.removeEventListener("keydown", seen);
+    expect(seen).not.toHaveBeenCalled();
+    expect(sent().at(-1)).toEqual({ t: "stop" });
+  });
+  it("does not send or get stuck before the socket is open", () => {
+    const { ws, sent } = setup();
+    ws.readyState = 0;
+    say("hello");
+    expect(sent()).toEqual([]);
+    expect(textarea().value).toBe("hello");
+    expect(sendBtn().textContent).toBe("Gửi");
+  });
+  it("result disables pending permission cards", () => {
+    const { ev, sent } = setup();
+    ev({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "Write", input: {} } });
+    ev({ type: "result", subtype: "success", is_error: false });
+    const b = $(".perm button") as HTMLButtonElement;
+    expect(b.disabled).toBe(true);
+    b.click();
+    expect(sent()).toEqual([]);
   });
 });
