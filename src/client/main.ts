@@ -94,7 +94,7 @@ async function main() {
     return (await res.json()) as Detail;
   };
   /** JSON call to a token-guarded endpoint → parsed body, or a Vietnamese error message. */
-  const send = async (method: string, path: string, body?: LaunchOpts | { enabled: boolean }): Promise<{ state: ExploreState } | string> => {
+  const send = async (method: string, path: string, body?: LaunchOpts | { enabled: boolean } | Record<string, never>): Promise<{ state: ExploreState } | string> => {
     let res: Response;
     try {
       res = await fetch(`${path}?token=${encodeURIComponent(token)}`, {
@@ -115,7 +115,8 @@ async function main() {
     return { state: data?.state as ExploreState };
   };
   const panelRoot = document.getElementById("panel")!;
-  const panel = new Panel(panelRoot, fetchDetail);
+  const panel = new Panel(panelRoot, fetchDetail, (id) =>
+    send("POST", `/api/session/${encodeURIComponent(id)}/desktop`, {}).then((r) => (typeof r === "string" ? r : null)));
   const onPick = (kind: Kind, id: string) => {
     tip.hide();
     void panel.open(kind, id);
