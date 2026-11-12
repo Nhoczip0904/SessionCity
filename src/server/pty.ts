@@ -52,8 +52,8 @@ export class PtyHub {
     return {
       onData: (cb) => void proc.onData(cb),
       onExit: (cb) => void proc.onExit((e) => cb(e.exitCode)),
-      write: (d) => proc.write(d),
-      resize: (c, r) => proc.resize(c, r),
+      write: (d) => void (!entry.exited && proc.write(d)),
+      resize: (c, r) => void (!entry.exited && proc.resize(c, r)),
       kill,
     };
   }

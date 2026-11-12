@@ -1,3 +1,4 @@
+import { get } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -128,5 +129,22 @@ describe("/pty websocket", () => {
     });
     await s2.close();
     expect(killAlls).toBe(1);
+  });
+
+  it("accepts an uppercase session id", async () => {
+    const { ws } = await connect(`session=${SID.toUpperCase()}`);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
+  });
+
+  it("kills the terminal when the handshake is invalid", async () => {
+    const before = opens.length;
+    await new Promise<void>((ok) => {
+      get(`http://127.0.0.1:${p}/pty?token=${TOKEN}&session=${SID}`, {
+        headers: { Origin: `http://127.0.0.1:${p}`, Connection: "Upgrade", Upgrade: "websocket" },
+      }).on("upgrade", () => ok()).on("response", (r) => { r.resume(); ok(); }).on("error", () => ok());
+    });
+    expect(opens.length).toBe(before + 1);
+    await until(() => term.kills === 1);
   });
 });

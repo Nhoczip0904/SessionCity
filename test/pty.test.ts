@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { PtyHub, type PtyProc, type PtySpawn } from "../src/server/pty.js";
 
 function fake() {
-  const procs: { proc: PtyProc; exit: (code: number) => void; kill: ReturnType<typeof vi.fn> }[] = [];
+  const procs: { proc: PtyProc; exit: (code: number) => void; kill: ReturnType<typeof vi.fn>; write: ReturnType<typeof vi.fn>; resize: ReturnType<typeof vi.fn> }[] = [];
   const spawn = vi.fn<PtySpawn>(() => {
     const exits: ((e: { exitCode: number }) => void)[] = [];
     const kill = vi.fn();
-    const proc: PtyProc = { onData: () => {}, onExit: (cb) => void exits.push(cb), write: () => {}, resize: () => {}, kill };
-    procs.push({ proc, exit: (exitCode) => exits.forEach((f) => f({ exitCode })), kill });
+    const write = vi.fn();
+    const resize = vi.fn();
+    const proc: PtyProc = { onData: () => {}, onExit: (cb) => void exits.push(cb), write, resize, kill };
+    procs.push({ proc, exit: (exitCode) => exits.forEach((f) => f({ exitCode })), kill, write, resize });
     return proc;
   });
   return { spawn, procs };
@@ -62,5 +64,17 @@ describe("PtyHub", () => {
     hub.killAll();
     expect(procs.map((p) => p.kill.mock.calls.length)).toEqual([1, 1]);
     expect(hub.size).toBe(0);
+  });
+
+  it("write and resize after exit do not reach the proc", () => {
+    const { spawn, procs } = fake();
+    const t = new PtyHub(spawn, "c").open("a", "c", 1, 1)!;
+    t.write("x");
+    t.resize(2, 2);
+    expect([procs[0].write.mock.calls.length, procs[0].resize.mock.calls.length]).toEqual([1, 1]);
+    procs[0].exit(0);
+    t.write("y");
+    t.resize(3, 3);
+    expect([procs[0].write.mock.calls.length, procs[0].resize.mock.calls.length]).toEqual([1, 1]);
   });
 });

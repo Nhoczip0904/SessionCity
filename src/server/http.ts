@@ -252,7 +252,7 @@ export async function startServer(opts: {
     const origin = req.headers.origin;
     if (!origin || !origins.includes(origin)) return reject(403, "Forbidden");
     if (url.pathname === "/pty") {
-      const sid = url.searchParams.get("session") ?? "";
+      const sid = (url.searchParams.get("session") ?? "").toLowerCase(); // store ids are lowercase
       const s = SESSION_ID.test(sid) ? store.detailSession(sid) : undefined; // the id goes on a command line
       if (!s || !opts.pty) return reject(404, "Not Found");
       const term = opts.pty.open(
@@ -262,7 +262,9 @@ export async function startServer(opts: {
         clampSize(url.searchParams.get("rows"), 32, 5, 200),
       );
       if (!term) return reject(503, "Service Unavailable");
+      let up = false;
       ptyWss.handleUpgrade(req, socket, head, (ws) => {
+        up = true;
         ws.on("error", () => {});
         term.onData((d) => {
           if (ws.readyState === WebSocket.OPEN) ws.send(d);
@@ -281,6 +283,7 @@ export async function startServer(opts: {
             term.resize(clampSize(String(m.cols), 120, 20, 400), clampSize(String(m.rows), 32, 5, 200));
         });
       });
+      if (!up) term.kill(); // invalid handshake: ws aborted without calling back (the callback is synchronous)
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
