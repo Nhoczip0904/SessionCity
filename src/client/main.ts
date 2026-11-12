@@ -133,7 +133,7 @@ async function main() {
   aim.cursor = "crosshair";
   aim.on("pointertap", (e) => {
     const to = e.getLocalPosition(layer);
-    flyRock(layer, { x: to.x * 0.6 + W * 0.2, y: H }, to, () => void actors.hit(to));
+    flyRock(layer, { x: to.x * 0.6 + W * 0.2, y: H }, to, () => void (actors.hit(to) || traffic.hit(to)));
   });
   world.addChild(aim);
   app.ticker.add((t) => {
