@@ -12,6 +12,7 @@ export default defineConfig({
       "/api": server,
       "/ws": { target: server, ws: true, rewriteWsOrigin: true },
       "/pty": { target: server, ws: true, rewriteWsOrigin: true },
+      "/chat": { target: server, ws: true, rewriteWsOrigin: true },
     },
   },
 });
