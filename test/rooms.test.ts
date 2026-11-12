@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Employee, Session, SessionDetail } from "../src/shared/types.js";
-import { SITE_JOBS, deskSpots, siteJob, fileRows, officeLayout, roomOccupants, tokenRows } from "../src/client/rooms.js";
+import { WORK_JOBS, deskSpots, workJob, fileRows, officeLayout, roomOccupants, tokenRows } from "../src/client/rooms.js";
 
 const z = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const sess = (o: Partial<Session>): Session => ({ id: "s", project: "p", cwd: "", lastActivity: "", status: "working", district: "lab", tokens: { ...z, byModel: {} }, employees: [], ...o });
@@ -49,27 +49,29 @@ describe("deskSpots", () => {
     expect(new Set(s.map((p) => `${p.x},${p.y}`)).size).toBe(12);
     for (const p of s) expect(p.x >= 7 && p.x <= 8).toBe(false); // the aisle to the door stays free
   });
-  it("site: 12 builders scattered, not on a grid, none overlapping, clear of the tape zone and the door", () => {
-    const s = deskSpots(12, "site");
-    expect(s).toHaveLength(12);
-    expect(s.some((p) => p.big || p.back)).toBe(false);
-    expect(new Set(s.map((p) => p.y)).size).toBeGreaterThan(2); // not two neat rows
-    expect(new Set(s.map((p) => p.x)).size).toBeGreaterThan(6);
-    for (const p of s) {
-      expect(p.x).toBeGreaterThanOrEqual(0); expect(p.x + 1).toBeLessThan(16);
-      expect(p.y).toBeGreaterThanOrEqual(4); expect(p.y + 1).toBeLessThan(11); // job row above the door row
-      if (p.x + 1 >= 4 && p.x <= 11) expect(p.y).toBeGreaterThanOrEqual(6); // below the taped-off zone
-    }
-    for (const a of s) for (const b of s) if (a !== b) expect(Math.abs(a.x - b.x) >= 3 || Math.abs(a.y - b.y) >= 2).toBe(true);
-    expect(deskSpots(12, "site")).toEqual(s); // same scatter every time the room is drawn
-  });
-  it("site: every job is there twice", () => {
-    const jobs = deskSpots(12, "site").map(siteJob);
-    for (const j of SITE_JOBS) expect(jobs.filter((x) => x === j)).toHaveLength(2);
-    const s = deskSpots(12, "site");
-    for (const a of s) for (const b of s)
-      if (a !== b && Math.abs(a.x - b.x) <= 4 && Math.abs(a.y - b.y) <= 3) expect(siteJob(a)).not.toBe(siteJob(b)); // neighbours differ
-  });
+  for (const [layout, top] of [["site", 6], ["factory", 5]] as const) {
+    it(`${layout}: 12 workers scattered, not on a grid, none overlapping, clear of the set piece and the door`, () => {
+      const s = deskSpots(12, layout);
+      expect(s).toHaveLength(12);
+      expect(s.some((p) => p.big || p.back)).toBe(false);
+      expect(new Set(s.map((p) => p.y)).size).toBeGreaterThan(2); // not two neat rows
+      expect(new Set(s.map((p) => p.x)).size).toBeGreaterThan(6);
+      for (const p of s) {
+        expect(p.x).toBeGreaterThanOrEqual(0); expect(p.x + 1).toBeLessThan(16);
+        expect(p.y).toBeGreaterThanOrEqual(4); expect(p.y + 1).toBeLessThan(11); // job row above the door row
+        if (layout === "factory" || (p.x + 1 >= 4 && p.x <= 11)) expect(p.y).toBeGreaterThanOrEqual(top); // below the tape / the conveyor
+      }
+      for (const a of s) for (const b of s) if (a !== b) expect(Math.abs(a.x - b.x) >= 3 || Math.abs(a.y - b.y) >= 2).toBe(true);
+      expect(deskSpots(12, layout)).toEqual(s); // same scatter every time the room is drawn
+    });
+    it(`${layout}: every job is there twice, never next to itself`, () => {
+      const s = deskSpots(12, layout);
+      const jobs = s.map((p) => workJob(layout, p));
+      for (const j of WORK_JOBS[layout]) expect(jobs.filter((x) => x === j)).toHaveLength(2);
+      for (const a of s) for (const b of s)
+        if (a !== b && Math.abs(a.x - b.x) <= 4 && Math.abs(a.y - b.y) <= 3) expect(workJob(layout, a)).not.toBe(workJob(layout, b));
+    });
+  }
   it("hall: one big desk, the rest are chairs", () => {
     const s = deskSpots(12, "hall");
     expect(s.filter((p) => p.big)).toEqual([{ x: 7, y: 3, big: true }]);

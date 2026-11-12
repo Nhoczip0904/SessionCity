@@ -1,5 +1,5 @@
 import { Graphics } from "pixi.js";
-import type { Decor, SiteJob } from "./rooms.js";
+import type { Decor, Job } from "./rooms.js";
 
 const T = 16;
 /** Left/right wall panels beside the board (board spans x 50–206 on rows 0–1). */
@@ -156,8 +156,8 @@ export function decorUnder(kind: Decor, anim: Anim) {
   }
 }
 
-/** One builder's job at the site, 2 tiles wide on the row (wx, wy); animated while `on`, `p` = per-spot phase. */
-export function drawSiteJob(g: Graphics, job: SiteJob, wx: number, wy: number, t: number, on: boolean, p: number) {
+/** One worker's job (site or factory), 2 tiles wide on the row (wx, wy); animated while `on`, `p` = per-spot phase. */
+export function drawJob(g: Graphics, job: Job, wx: number, wy: number, t: number, on: boolean, p: number) {
   const W = 2 * T, base = wy + T - 2;
   const blink = on && Math.floor(t / 120 + p) % 2 === 1;
   g.clear().rect(wx, base, W, 2).fill(0x6e6a64); // footing
@@ -217,6 +217,59 @@ export function drawSiteJob(g: Graphics, job: SiteJob, wx: number, wy: number, t
       for (const [rx, ry, r, c] of [[8, 3, 4, 0x8a8478], [15, 4, 5, 0x9a9488], [23, 3, 4, 0x7a746a]] as const) g.circle(wx + rx + shake * 0.5, base - ry, r).fill(c);
       g.rect(wx + 15 + shake, base - 14, 2, 8).fill(0x3a3a3a).rect(wx + 12 + shake, base - 16, 8, 2).fill(0xf2c200);
       if (on) for (let k = 0; k < 3; k++) g.circle(wx + 10 + k * 6, base - 6 - ((t / 70 + k * 3) % 6), 1.5).fill({ color: 0xd8d0c0, alpha: 0.6 });
+      break;
+    }
+    case "press": { // hydraulic press stamping a sheet
+      const ram = on ? Math.abs(Math.sin(t / 250 + p)) * 7 : 2;
+      g.rect(wx + 4, base - 17, 3, 17).fill(0x4a5a6a).rect(wx + 25, base - 17, 3, 17).fill(0x4a5a6a).rect(wx + 4, base - 19, 24, 3).fill(0x3a4a5a);
+      g.rect(wx + 14, base - 16, 4, 3 + ram).fill(0xa0a8b0).rect(wx + 10, base - 13 + ram, 12, 4).fill(0x6a727c);
+      g.rect(wx + 8, base - 3, 16, 2).fill(0xd0d4d8);
+      if (on && ram > 6.5) g.rect(wx + 9, base - 4, 1, 1).fill(0xffe066).rect(wx + 22, base - 5, 1, 1).fill(0xffe066);
+      break;
+    }
+    case "lathe": { // lathe turning a bar, sparks off the tool
+      g.rect(wx + 1, base - 6, W - 2, 5).fill(0x2f5a46).rect(wx + 1, base - 13, 7, 7).fill(0x3a6a54);
+      const spin = on ? Math.floor(t / 40) % 4 : 0;
+      g.rect(wx + 8, base - 11, 18, 3).fill(0xb8bcc0);
+      for (let i = 0; i < 5; i++) g.rect(wx + 9 + i * 4 + spin, base - 11, 1, 3).fill(0x80868c);
+      g.rect(wx + 26, base - 12, 3, 5).fill(0x3a6a54).rect(wx + 18, base - 8, 3, 2).fill(0x222222);
+      if (on) for (let k = 0; k < 3; k++) g.rect(wx + 20 + Math.sin(t / 40 + k * 2) * 3, base - 7 + Math.abs(Math.cos(t / 60 + k)) * 5, 1, 1).fill(0xffb030);
+      break;
+    }
+    case "pack": { // cardboard box, flaps open and close, tape on the bench
+      g.rect(wx + 1, base - 5, W - 2, 5).fill(0x8a6a4a);
+      const flap = on ? Math.abs(Math.sin(t / 400 + p)) * 5 : 4;
+      g.rect(wx + 8, base - 15, 16, 10).fill(0xc8a060).rect(wx + 8, base - 15, 16, 1).fill(0xa8803c);
+      g.rect(wx + 8, base - 15 - flap, 2, flap).fill(0xd8b070).rect(wx + 22, base - 15 - flap, 2, flap).fill(0xd8b070);
+      g.rect(wx + 15, base - 15, 2, 10).fill(0xb89050);
+      g.circle(wx + 28, base - 7, 2).fill(0xe0e0d0); // tape roll
+      break;
+    }
+    case "robot": { // orange robot arm swinging between two points
+      const a = on ? -1.9 + Math.sin(t / 450 + p) * 0.8 : -1.6;
+      const sx = wx + 16, sy = base - 5, ex = sx + Math.cos(a) * 9, ey = sy + Math.sin(a) * 9, b = a + 1.3;
+      const hx = ex + Math.cos(b) * 7, hy = ey + Math.sin(b) * 7;
+      g.rect(wx + 11, base - 4, 10, 4).fill(0x3a3a3a);
+      g.moveTo(sx, sy).lineTo(ex, ey).stroke({ color: 0xe07a20, width: 3 }).moveTo(ex, ey).lineTo(hx, hy).stroke({ color: 0xe07a20, width: 2 });
+      g.circle(ex, ey, 1.5).fill(0x3a3a3a).rect(hx - 2, hy - 1, 4, 2).fill(0x8a8a8a);
+      break;
+    }
+    case "furnace": { // brick furnace with a flickering mouth
+      g.rect(wx + 4, base - 17, 24, 17).fill(0x5a4a44);
+      for (let r = 0; r < 4; r++) g.rect(wx + 4, base - 17 + r * 4, 24, 1).fill(0x4a3a34);
+      const f = on ? 0.6 + 0.4 * Math.abs(Math.sin(t / 90 + p)) : 0.25;
+      g.rect(wx + 10, base - 11, 12, 8).fill(0x1a0e0a).rect(wx + 11, base - 9, 10, 6).fill({ color: 0xff8a20, alpha: f });
+      if (on) g.circle(wx + 16, base - 7, 10).fill({ color: 0xff8030, alpha: 0.12 * f });
+      break;
+    }
+    case "crates": { // stacking wooden crates, one at a time
+      const n = on ? Math.floor(t / 700 + p) % 7 : 2;
+      const pos = [[1, 0], [11, 0], [21, 0], [6, 1], [16, 1], [11, 2]];
+      for (let i = 0; i < Math.min(n, pos.length); i++) {
+        const [cx, row] = pos[i];
+        g.rect(wx + cx, base - 7 - row * 7, 10, 7).fill(0xa8783c).rect(wx + cx, base - 7 - row * 7, 10, 1).fill(0xc8984c)
+          .rect(wx + cx + 4, base - 7 - row * 7, 1, 7).fill(0x7a5428);
+      }
       break;
     }
   }

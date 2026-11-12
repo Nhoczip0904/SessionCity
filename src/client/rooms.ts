@@ -12,7 +12,7 @@ export type Furniture = "safe" | "cabinet" | "phone" | "map" | "shelf";
 export interface Prop { tiles: number[]; w: number; x: number; y: number; name?: string; action?: Furniture; leds?: boolean; /** tiles from the city sheet */ city?: boolean }
 export type FloorKind = "wood" | "tile" | "concrete";
 /** Procedural, partly animated set piece that makes a department recognisable. */
-export type Layout = "office" | "hall" | "lounge" | "site";
+export type Layout = "office" | "hall" | "lounge" | "site" | "factory";
 export type Spot = Pt & { big?: boolean; /** sits below its desk, facing up */ back?: boolean };
 export type Decor = "shelves" | "pinboard" | "worksite" | "racks" | "flasks" | "diff" | "conveyor" | "carousel" | "radar" | "fireplace" | "stage";
 export interface RoomTheme {
@@ -23,7 +23,7 @@ export interface RoomTheme {
   decor?: Decor;
   /** colour light over the whole room: [colour, alpha] */ tint?: [number, number];
   /** workstation look: 2 desk tiles (left, right), whether it carries a screen */ desk?: { tiles: number[]; monitor: boolean };
-  /** "hall": one big desk, everyone else waits on chairs; "lounge": armchairs, no desks; "site": builders behind walls going up */ layout?: Layout;
+  /** "hall": one big desk, everyone else waits on chairs; "lounge": armchairs, no desks; "site"/"factory": people at hands-on jobs scattered over the floor */ layout?: Layout;
   props: Prop[];
 }
 
@@ -62,8 +62,7 @@ export const ROOM_THEMES: Partial<Record<District, RoomTheme>> = {
     row(K.IN_TAPESTRY, 13, 0.4), row(K.IN_BOOKSHELF, 13), block(K.IN_CLOTH_TABLE, 3, 6.5, 3),
     one(K.IN_CHAIR_SIDE[0], 5.5, 3.5), one(K.IN_CHAIR_SIDE[1], 9.5, 3.5), one(K.IN_PLANT, 4), one(K.IN_PLANT2, 11), ...corners] },
   // factory floor: conveyor belt across the hall, machines, workbenches
-  factory: { floor: 0x77736a, wall: 0xb8a890, kind: "concrete", windows: [], decor: "conveyor",
-    desk: { tiles: [K.IN_COUNTER[0], K.IN_COUNTER[2]], monitor: false }, props: [
+  factory: { floor: 0x77736a, wall: 0xb8a890, kind: "concrete", windows: [], decor: "conveyor", layout: "factory", props: [
     tall(K.IN_MACHINE, 0), tall(K.IN_MACHINE, 1), tall(K.IN_MACHINE, 14), tall(K.IN_MACHINE, 15),
     tall(K.IN_SPEAKER, 3), tall(K.IN_SPEAKER, 12), one(K.IN_PIPE, 6), one(K.IN_PIPE, 9), one(K.IN_CLOCK, 1, 0.4)] },
   // terminal: baggage carousel, departure board, check-in counters
@@ -119,44 +118,54 @@ export function roomOccupants(d: District, sessions: Session[], employees: Emplo
   return cap([...mayors, ...staff]);
 }
 
-export const SITE_JOBS = ["bricks", "weld", "mixer", "saw", "paint", "drill"] as const;
-export type SiteJob = (typeof SITE_JOBS)[number];
-/** 12 builder spots scattered over the floor (standing on row y, the job on row y+1), each job twice and never
- *  the same job as a spot close by. Seeded: the first seed where everything fits wins, so it never changes. */
-const SITE: { spots: Pt[]; jobs: SiteJob[] } = (() => {
+/** Rooms where people work standing at a job instead of a desk, and the six jobs of each. */
+export const WORK_JOBS = {
+  site: ["bricks", "weld", "mixer", "saw", "paint", "drill"],
+  factory: ["press", "lathe", "pack", "robot", "furnace", "crates"],
+} as const;
+export type WorkLayout = keyof typeof WORK_JOBS;
+export type Job = (typeof WORK_JOBS)[WorkLayout][number];
+
+/** 12 spots scattered over the floor (standing on row y, the job on row y+1), each job twice and never the same
+ *  job as a spot close by. Seeded: the first seed where everything fits wins, so the scatter never changes. */
+function scatter(jobsOf: readonly Job[], clear: (p: Pt) => boolean): { spots: Pt[]; jobs: Job[] } {
   const near = (a: Pt, b: Pt) => Math.abs(a.x - b.x) <= 4 && Math.abs(a.y - b.y) <= 3;
   for (let start = 1; ; start++) {
     let seed = start;
     const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
     const spots: Pt[] = [];
-    const free = (p: Pt) =>
-      (p.x + 1 < 4 || p.x > 11 || p.y >= 6) && // below the taped-off zone
-      spots.every((q) => Math.abs(p.x - q.x) >= 3 || Math.abs(p.y - q.y) >= 2); // room for the job and the name label
+    const free = (p: Pt) => clear(p) && spots.every((q) => Math.abs(p.x - q.x) >= 3 || Math.abs(p.y - q.y) >= 2); // room for the job and the name label
     for (let i = 0; spots.length < MAX_DESKS && i < 2000; i++) {
       const p = { x: Math.floor(rand() * 15), y: 4 + Math.floor(rand() * 6) };
       if (free(p)) spots.push(p);
     }
     if (spots.length < MAX_DESKS) continue;
-    const jobs: SiteJob[] = [];
+    const jobs: Job[] = [];
     for (const [i, p] of spots.entries()) {
-      const j = SITE_JOBS.find((j) => jobs.filter((x) => x === j).length < 2 && !spots.some((q, k) => k < i && jobs[k] === j && near(p, q)));
+      const j = jobsOf.find((j) => jobs.filter((x) => x === j).length < 2 && !spots.some((q, k) => k < i && jobs[k] === j && near(p, q)));
       if (!j) break;
       jobs.push(j);
     }
     if (jobs.length === MAX_DESKS) return { spots, jobs };
   }
-})();
-const SITE_SPOTS = SITE.spots;
-/** What the builder at a site spot does. */
-export const siteJob = (p: Pt): SiteJob => SITE.jobs[Math.max(0, SITE_SPOTS.findIndex((q) => q.x === p.x && q.y === p.y))];
+}
+const WORK = {
+  site: scatter(WORK_JOBS.site, (p) => p.x + 1 < 4 || p.x > 11 || p.y >= 6), // below the taped-off zone
+  factory: scatter(WORK_JOBS.factory, (p) => p.y >= 5), // below the conveyor belt
+};
+/** What the worker at a spot of a work room does. */
+export const workJob = (layout: WorkLayout, p: Pt): Job => {
+  const w = WORK[layout];
+  return w.jobs[Math.max(0, w.spots.findIndex((q) => q.x === p.x && q.y === p.y))];
+};
 
 export function deskSpots(n: number, layout: Layout = "office"): Spot[] {
   const out: Spot[] = [];
   if (layout === "hall") {
     out.push({ x: 7, y: 3, big: true }); // the one desk, 3 wide on the stage
     for (const y of [5, 7, 9]) for (const x of [2, 5, 10, 13]) if (out.length < MAX_DESKS) out.push({ x, y }); // a chair, no desk
-  } else if (layout === "site") {
-    out.push(...SITE_SPOTS.map((p) => ({ ...p })));
+  } else if (layout === "site" || layout === "factory") {
+    out.push(...WORK[layout].spots.map((p) => ({ ...p })));
   } else if (layout === "lounge") {
     for (const y of [5, 10]) for (const x of [1, 3, 5, 10, 12, 14]) out.push({ x, y }); // an armchair, rows y-1..y; coffee table between the rows
   } else {
