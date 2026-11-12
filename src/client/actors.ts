@@ -154,7 +154,7 @@ export class Actors {
     a.citizen = true;
     a.wander = true;
     this.dress(a, "citizen", () => {
-      if (this.sheets) return this.figure(0, K.OUTFIT_CITIZEN, true);
+      if (this.sheets) return this.figure(0, K.OUTFIT_CITIZEN, true, this.citizens.length + 3);
       const spr = new Sprite(this.tex(0x999999, true));
       spr.anchor.set(0.5, 1);
       return spr;
@@ -170,7 +170,8 @@ export class Actors {
   }
 
   /** Part 1 figure without sheets, else layered Kenney sprites (16×16, feet at the origin). */
-  private figure(slot: number, outfit: Outfit, small: boolean): Container {
+  /** An anime girl: long tinted hair, big eyes, blush and a skirt over the outfit's shirt colour; `look` picks hair and skirt. */
+  private figure(slot: number, outfit: Outfit, small: boolean, look = slot): Container {
     if (!this.sheets) {
       const base = PALETTE[slot % PALETTE.length];
       const spr = new Sprite(this.tex(small ? shade(base, 0.45) : base, small));
@@ -181,12 +182,24 @@ export class Actors {
     const [bc, br] = K.SHIRT_COLORS[slot % K.SHIRT_COLORS.length];
     const shirt: K.Frame = outfit.own ? [bc + outfit.shirt[0], br + outfit.shirt[1]] : outfit.shirt;
     const fig = new Container();
-    for (const f of [K.CHAR_BODY, K.PANTS, K.SHOES, shirt, outfit.hair, outfit.hat, outfit.item]) {
-      if (!f) continue;
+    const add = (f: K.Frame, tint?: number) => {
       const spr = new Sprite(s.char(f[0], f[1]));
       spr.position.set(-8, -16);
+      if (tint !== undefined) spr.tint = tint;
       fig.addChild(spr);
-    }
+    };
+    add(K.CHAR_BODY); add(K.PANTS); add(K.SHOES); add(shirt);
+    // sprite pixels: head x 4–11 rows 2–6 (eyes on row 5), pants rows 13–15
+    const face = new Graphics();
+    const px = (x: number, y: number, w: number, h: number, c: number, a = 1) => face.rect(x - 8, y - 16, w, h).fill({ color: c, alpha: a });
+    px(3, 12, 10, 1, K.SKIRTS[look % K.SKIRTS.length]).rect(-6, -3, 12, 2).fill(K.SKIRTS[look % K.SKIRTS.length]); // skirt over the pants
+    px(5, 4, 2, 2, 0x2a3a8a); px(9, 4, 2, 2, 0x2a3a8a); // big eyes
+    px(5, 4, 1, 1, 0xffffff); px(9, 4, 1, 1, 0xffffff); // shine
+    px(5, 6, 1, 1, 0xff8aa0, 0.8); px(10, 6, 1, 1, 0xff8aa0, 0.8); // blush
+    fig.addChild(face);
+    add(K.LONG_HAIR, K.ANIME_HAIR[look % K.ANIME_HAIR.length]);
+    if (outfit.hat) add(outfit.hat);
+    if (outfit.item) add(outfit.item);
     return fig;
   }
 
