@@ -98,7 +98,10 @@ async function main() {
   const cityTex = new Texture({ source: mapTex.source, frame: new Rectangle(0, 0, W, cityH) });
   const map = new Sprite(mapTex);
   const light = lightOverlay(W, H);
-  world.addChild(map, cars);
+  const motion = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  world.addChild(map);
+  if (motion) world.addChild(city.ripples());
+  world.addChild(cars);
   if (sheets) world.addChild(light);
   let plazaOn = load(PLAZA_KEY) !== "0";
   const agentsOn = load(AGENTS_KEY) !== "0";
@@ -112,7 +115,6 @@ async function main() {
   papers.zIndex = 1;
   roomLayer.addChild(papers);
   app.stage.addChild(world, roomLayer);
-  const motion = !matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const fitTo = (c: Container, w: number, h: number) => {
     const sw = app.screen.width - navW, sh = app.screen.height - HUD_H;

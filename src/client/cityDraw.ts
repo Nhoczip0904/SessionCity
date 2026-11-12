@@ -2,6 +2,7 @@ import { Container, Graphics, Sprite } from "pixi.js";
 import type { District } from "../shared/types.js";
 import * as K from "./tiles.js";
 import type { Sheets } from "./tiles.js";
+import { onRoad, type Road } from "./roads.js";
 
 const T = 16;
 
@@ -10,8 +11,8 @@ export interface MapLayout {
   rows: number;
   isRoad(x: number, y: number): boolean;
   isPath(x: number, y: number): boolean;
-  roadRows: number[];
-  roadCols: number[];
+  isRiver(x: number, y: number): boolean;
+  roads: Road[];
   plots: { id: District; x: number; y: number; w: number; h: number; up: boolean }[];
   hq: { x: number; y: number; up: boolean }[];
   built: Set<number>;
@@ -30,14 +31,17 @@ export function drawTiles(s: Sheets, m: MapLayout): Container {
     root.addChild(sp);
   };
   const { cols, rows, isRoad, hash } = m;
-  const isH = (x: number, y: number) => m.roadRows.includes(y) && isRoad(x, y);
-  const isV = (x: number, y: number) => m.roadCols.includes(x) && isRoad(x, y);
+  const hRoad = (x: number, y: number) => m.roads.find((r) => r.w > r.h && onRoad(r, x, y));
+  const vRoad = (x: number, y: number) => m.roads.find((r) => r.w < r.h && onRoad(r, x, y));
+  const isH = (x: number, y: number) => !!hRoad(x, y);
+  const isV = (x: number, y: number) => !!vRoad(x, y);
   const builtAt = (x: number, y: number) => m.built.has(y * cols + x);
 
-  // ground: roads, sidewalk ring around each block, grass elsewhere
+  // ground: roads, sidewalk ring around each block, grass elsewhere; the river is drawn beneath
   const sidewalk = new Set<number>();
   for (let y = 0; y < rows; y++)
     for (let x = 0; x < cols; x++) {
+      if (m.isRiver(x, y) && !isRoad(x, y)) continue;
       if (isRoad(x, y)) {
         put(roadTile(x, y), x, y);
         continue;
@@ -65,21 +69,21 @@ export function drawTiles(s: Sheets, m: MapLayout): Container {
     if (h && v) return K.ROAD;
     if (h && (isV(x - 1, y) || isV(x + 1, y))) return K.CROSSWALK_H;
     if (v && (isH(x, y - 1) || isH(x, y + 1))) return K.CROSSWALK_V;
-    if (h) return m.roadRows.includes(y - 1) ? K.ROAD_DASH_H : K.ROAD;
-    return m.roadCols.includes(x + 1) ? K.ROAD_DASH_V : K.ROAD;
+    if (h) return y === hRoad(x, y)!.y + 1 ? K.ROAD_DASH_H : K.ROAD;
+    return x === vRoad(x, y)!.x ? K.ROAD_DASH_V : K.ROAD;
   }
 
   // filler on free tiles: trees and bushes on grass, lamps and benches on the sidewalk
   for (let y = 0; y < rows; y++)
     for (let x = 0; x < cols; x++) {
       const k = y * cols + x, h = hash(x, y);
-      if (isRoad(x, y) || builtAt(x, y)) continue;
+      if (isRoad(x, y) || builtAt(x, y) || m.isRiver(x, y)) continue;
       if (sidewalk.has(k)) {
-        if (h % 11 === 0) { put(K.LAMP_TOP, x, y - 1); put(K.LAMP_BOTTOM, x, y); }
+        if (h % 11 === 0 && !m.isRiver(x, y - 1)) { put(K.LAMP_TOP, x, y - 1); put(K.LAMP_BOTTOM, x, y); }
         else if (h % 17 === 1) put(K.BENCH, x, y);
         continue;
       }
-      const freeAbove = y > 0 && !isRoad(x, y - 1) && !builtAt(x, y - 1) && !sidewalk.has(k - cols);
+      const freeAbove = y > 0 && !isRoad(x, y - 1) && !builtAt(x, y - 1) && !sidewalk.has(k - cols) && !m.isRiver(x, y - 1);
       if (h % 4 === 0 && freeAbove) { put(K.TREE_TOP, x, y - 1); put(K.TREE_BOTTOM, x, y); }
       else if (h % 5 === 1) put(K.BUSH, x, y);
     }

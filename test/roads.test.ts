@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carPos, centreLines, nextNode, roadGraph, spawnCar, stepCar, gapAhead, inLane, wanderTarget } from "../src/client/roads.js";
+import { carPos, nextNode, roadGraph, spawnCar, stepCar, gapAhead, inLane, wanderTarget } from "../src/client/roads.js";
 
 function mulberry32(a: number) {
   return () => {
@@ -11,14 +11,15 @@ function mulberry32(a: number) {
 }
 
 const XS = [3, 16, 32, 45], YS = [3, 16, 29];
+// the old full grid as 2-wide road rectangles; centre lines at XS x YS
+const GRID = [
+  ...[2, 15, 28].map((y) => ({ x: 2, y, w: 44, h: 2 })),
+  ...[2, 15, 31, 44].map((x) => ({ x, y: 2, w: 2, h: 28 })),
+];
 
 describe("roads", () => {
-  it("centreLines picks the second index of each 2-tile road", () => {
-    expect(centreLines([2, 3, 15, 16])).toEqual([3, 16]);
-  });
-
-  it("city graph has 4×3 intersections", () => {
-    const g = roadGraph(XS, YS);
+  it("a full grid has 4×3 intersections", () => {
+    const g = roadGraph(GRID);
     expect(g.nodes.length).toBe(12);
     const at = (x: number, y: number) => g.nodes.findIndex((n) => n.x === x && n.y === y);
     expect(g.adj[at(3, 3)].length).toBe(2);
@@ -26,7 +27,7 @@ describe("roads", () => {
   });
 
   it("nextNode never turns back when there is a choice", () => {
-    const g = roadGraph(XS, YS), rand = mulberry32(1);
+    const g = roadGraph(GRID), rand = mulberry32(1);
     g.adj.forEach((nb, at) => nb.forEach((from) => {
       for (let i = 0; i < 200; i++) {
         const n = nextNode(g, at, from, rand);
@@ -37,12 +38,22 @@ describe("roads", () => {
   });
 
   it("dead end turns back", () => {
-    const g = roadGraph([0], [0, 5]);
+    const g = roadGraph([{ x: 0, y: 0, w: 2, h: 6 }]);
+    expect(g.nodes).toEqual([{ x: 1, y: 1 }, { x: 1, y: 5 }]);
     expect(nextNode(g, 1, 0, mulberry32(2))).toBe(0);
   });
 
+  it("T-junctions and dead ends become nodes; offset side streets do not cross", () => {
+    // main road rows 4-5, a street up from it at cols 2-3 and one down at cols 8-9
+    const g = roadGraph([{ x: 0, y: 4, w: 12, h: 2 }, { x: 2, y: 0, w: 2, h: 6 }, { x: 8, y: 4, w: 2, h: 6 }]);
+    const at = (x: number, y: number) => g.nodes.findIndex((n) => n.x === x && n.y === y);
+    expect(g.nodes.length).toBe(6);
+    expect(g.adj[at(3, 5)].sort()).toEqual([at(1, 5), at(3, 1), at(9, 5)].sort());
+    expect(g.adj[at(9, 5)].sort()).toEqual([at(3, 5), at(9, 9), at(11, 5)].sort());
+  });
+
   it("cars stay on centre lines", () => {
-    const g = roadGraph(XS, YS), rand = mulberry32(3);
+    const g = roadGraph(GRID), rand = mulberry32(3);
     const cars = Array.from({ length: 6 }, () => spawnCar(g, rand));
     for (let s = 0; s < 5000; s++) for (const c of cars) {
       stepCar(g, c, 16, rand);
