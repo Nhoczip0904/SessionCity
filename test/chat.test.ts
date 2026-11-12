@@ -6,7 +6,7 @@ import { ChatHub, type ChatProc, type ChatSpawn } from "../src/server/chat.js";
 const ARGS = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--resume", "abc", "--permission-prompts", "host", "--permission-prompt-tool", "stdio"];
 
 function fake() {
-  const procs: { proc: ChatProc; out: PassThrough; written: string[]; exit: (code: number | null) => void; kill: ReturnType<typeof vi.fn> }[] = [];
+  const procs: { proc: ChatProc; out: PassThrough; written: string[]; exit: (code: number | null) => void; kill: ReturnType<typeof vi.fn>; fail: () => void }[] = [];
   const spawn = vi.fn<ChatSpawn>(() => {
     const out = new PassThrough();
     const stdin = new PassThrough();
@@ -15,7 +15,7 @@ function fake() {
     const ee = new EventEmitter();
     const kill = vi.fn();
     const proc = { stdout: out, stdin, on: (ev: string, cb: (...a: any[]) => void) => ee.on(ev, cb), kill } as unknown as ChatProc;
-    procs.push({ proc, out, written, exit: (c) => ee.emit("exit", c), kill });
+    procs.push({ proc, out, written, exit: (c) => ee.emit("exit", c), kill, fail: () => ee.emit("error", new Error("ENOENT")) });
     return proc;
   });
   return { spawn, procs };
@@ -103,5 +103,17 @@ describe("ChatHub", () => {
       chat.interrupt();
     }).not.toThrow();
     expect(procs[0].written).toEqual([]);
+  });
+
+  it("a spawn error frees the slot and reports exit once", () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c", 1);
+    const c = hub.open("a", "c")!;
+    const codes: number[] = [];
+    c.onExit((x) => codes.push(x));
+    procs[0].fail();
+    procs[0].exit(null);
+    expect(codes).toEqual([1]);
+    expect(hub.size).toBe(0);
   });
 });

@@ -49,13 +49,17 @@ export class ChatHub {
     const exits: ((code: number) => void)[] = [];
     const inputs = new Map<string, unknown>(); // unanswered can_use_tool id -> original input
     let n = 0;
-    proc.on("error", () => {}); // spawn/kill failures must not crash the server
-    proc.stdin.on("error", () => {}); // EPIPE after exit
-    proc.on("exit", (code) => {
+    let ended = false;
+    const end = (code: number) => {
+      if (ended) return;
+      ended = true;
       entry.exited = true;
       this.live.delete(entry);
-      for (const f of exits) f(code ?? 1);
-    });
+      for (const f of exits) f(code);
+    };
+    proc.on("error", () => end(1)); // a failed spawn may never emit exit; must not crash or leak the slot
+    proc.stdin.on("error", () => {}); // EPIPE after exit
+    proc.on("exit", (code) => end(code ?? 1));
     const dec = new StringDecoder("utf8");
     let buf = "";
     proc.stdout.on("data", (d: Buffer | string) => {
