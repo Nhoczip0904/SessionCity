@@ -16,6 +16,7 @@ import { Panel, type Detail, type Kind } from "./panel.js";
 import { loadSheets } from "./tiles.js";
 import { Tooltip, plotAt, presentAt, renderDistrictCard } from "./tooltip.js";
 import { Traffic } from "./traffic.js";
+import { Ruins } from "./blast.js";
 import { districtInfo } from "../shared/districts.js";
 
 const HUD_H = 32;
@@ -62,7 +63,8 @@ async function main() {
   const layer = new Container();
   world.addChild(new Sprite(mapTex), cars);
   if (sheets) world.addChild(lightOverlay(W, H));
-  world.addChild(layer);
+  const rubble = new Container(); // building ruins sit under people and cars
+  world.addChild(rubble, layer);
   const roomLayer = new Container();
   roomLayer.sortableChildren = true;
   const papers = new Container(); // task papers in flight; outlive room rebuilds
@@ -131,6 +133,7 @@ async function main() {
   };
   const actors = new Actors(city, layer, bake, sheets, onPick, onEnter);
   const traffic = new Traffic(cars, sheets);
+  const ruins = new Ruins(rubble, [...city.plots.map((p) => p.px), ...city.hqPlots]);
   // rock mode: a see-through sheet over the map takes the clicks; stones fly from the bottom edge of the map
   const aim = new Container();
   aim.hitArea = new Rectangle(0, 0, W, H);
@@ -138,12 +141,13 @@ async function main() {
   aim.cursor = "crosshair";
   aim.on("pointertap", (e) => {
     const to = e.getLocalPosition(layer);
-    flyRock(layer, { x: to.x * 0.6 + W * 0.2, y: H }, to, () => void (actors.hit(to) || traffic.hit(to)));
+    flyRock(layer, { x: to.x * 0.6 + W * 0.2, y: H }, to, () => void (actors.hit(to) || traffic.hit(to) || ruins.hit(to)));
   });
   world.addChild(aim);
   app.ticker.add((t) => {
     actors.update(t.deltaMS);
     traffic.update(t.deltaMS);
+    ruins.update(t.deltaMS);
   });
 
   const sessions = new Map<string, Session>();
