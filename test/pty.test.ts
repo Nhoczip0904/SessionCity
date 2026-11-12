@@ -16,9 +16,9 @@ function fake() {
 describe("PtyHub", () => {
   it("spawns claude --resume with fixed options", () => {
     const { spawn } = fake();
-    new PtyHub(spawn, "C:\claude.exe").open("abc", "C:\proj", 100, 30);
-    expect(spawn).toHaveBeenCalledWith("C:\claude.exe", ["--resume", "abc"], {
-      name: "xterm-256color", cols: 100, rows: 30, cwd: "C:\proj", env: process.env,
+    new PtyHub(spawn, "/bin/claude").open("abc", "/proj", 100, 30);
+    expect(spawn).toHaveBeenCalledWith("/bin/claude", ["--resume", "abc"], {
+      name: "xterm-256color", cols: 100, rows: 30, cwd: "/proj", env: process.env,
     });
   });
 
@@ -49,6 +49,7 @@ describe("PtyHub", () => {
     a.kill();
     expect(procs[0].kill).not.toHaveBeenCalled();
     const b = hub.open("b", "c", 1, 1)!;
+    b.kill();
     b.kill();
     expect(procs[1].kill).toHaveBeenCalledTimes(1);
   });
