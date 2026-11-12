@@ -59,6 +59,11 @@ export class Watcher {
     clearTimeout(this.timer);
   }
 
+  /** The main transcript of a session (not a subagent file). */
+  fileOf(sessionId: string): string | undefined {
+    for (const [path, t] of this.tracked) if (t.sessionId === sessionId && !t.agentId) return path;
+  }
+
   private async tick(): Promise<void> {
     try {
       await this.scan();
