@@ -1,6 +1,6 @@
 import { Container, Graphics, Sprite, Ticker } from "pixi.js";
-import { ROAD_COLS, ROAD_ROWS, TILE } from "./city.js";
-import { carPos, centreLines, gapAhead, inLane, roadGraph, spawnCar, stepCar, type CarState, type RoadGraph } from "./roads.js";
+import { ROADS, TILE } from "./city.js";
+import { carPos, gapAhead, inLane, roadGraph, spawnCar, stepCar, type CarState, type RoadGraph } from "./roads.js";
 import { CARS, CARS_DOWN, CARS_UP, type Sheets } from "./tiles.js";
 
 const COUNT = 6;
@@ -59,7 +59,7 @@ export class Traffic {
   constructor(private layer: Container, sheets: Sheets | null, private rand: () => number = Math.random) {
     layer.eventMode = "none";
     // centre lines of the 2-tile roads; cars drive in the right-hand lane beside them
-    this.graph = roadGraph(centreLines(ROAD_COLS), centreLines(ROAD_ROWS));
+    this.graph = roadGraph(ROADS);
     if (!sheets || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     for (let i = 0; i < COUNT; i++) {
       const k = i % CARS.length;

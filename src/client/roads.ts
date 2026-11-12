@@ -5,22 +5,29 @@ export interface RoadGraph { nodes: Pt[]; adj: number[][] }
 export interface CarState { from: number; to: number; d: number; speed: number }
 type Rand = () => number;
 
-/** The second index of each 2-tile road: [2,3,15,16] -> [3,16]. */
-export const centreLines = (pairs: number[]): number[] => pairs.filter((_, i) => i % 2 === 1);
+/** A 2-tile-wide road, in tiles: horizontal when w > h. */
+export interface Road { x: number; y: number; w: number; h: number }
+export const onRoad = (r: Road, x: number, y: number) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
 
-/** One node per (x, y) crossing; edges join neighbours along a row/column. xs/ys must be ascending. */
-export function roadGraph(xs: number[], ys: number[]): RoadGraph {
+/**
+ * Nodes at every crossing, T-junction and dead end of the roads' centre lines; edges join
+ * neighbouring nodes along a road. A road's centre line is its second row/column.
+ */
+export function roadGraph(roads: Road[]): RoadGraph {
   const nodes: Pt[] = [], adj: number[][] = [];
-  ys.forEach((y) => xs.forEach((x) => nodes.push({ x, y })));
-  const w = xs.length;
-  nodes.forEach((_, i) => {
-    const cx = i % w, cy = Math.floor(i / w), nb: number[] = [];
-    if (cy > 0) nb.push(i - w);
-    if (cx > 0) nb.push(i - 1);
-    if (cx < w - 1) nb.push(i + 1);
-    if (cy < ys.length - 1) nb.push(i + w);
-    adj.push(nb);
-  });
+  const node = (x: number, y: number) => {
+    let i = nodes.findIndex((n) => n.x === x && n.y === y);
+    if (i < 0) { i = nodes.push({ x, y }) - 1; adj.push([]); }
+    return i;
+  };
+  // centre line of each road: fixed coordinate c, running from a to b along the other axis
+  const lines = roads.map((r) => (r.w > r.h ? { h: true, c: r.y + 1, a: r.x + 1, b: r.x + r.w - 1 } : { h: false, c: r.x + 1, a: r.y + 1, b: r.y + r.h - 1 }));
+  for (const l of lines) {
+    const at = new Set([l.a, l.b]);
+    for (const o of lines) if (o.h !== l.h && o.c >= l.a && o.c <= l.b && l.c >= o.a && l.c <= o.b) at.add(o.c);
+    const ids = [...at].sort((p, q) => p - q).map((t) => (l.h ? node(t, l.c) : node(l.c, t)));
+    for (let k = 1; k < ids.length; k++) { adj[ids[k - 1]].push(ids[k]); adj[ids[k]].push(ids[k - 1]); }
+  }
   return { nodes, adj };
 }
 
