@@ -40,6 +40,7 @@ describe("history", () => {
         user("<local-command-stdout>o</local-command-stdout>") +
         user("<system-reminder>r</system-reminder>") +
         user("meta", { isMeta: true }) +
+        user("summary", { isCompactSummary: true }) +
         user([{ type: "tool_result", tool_use_id: "t1", content: "out" }]) +
         user("real"),
     );
