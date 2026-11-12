@@ -11,6 +11,8 @@ import type { Store } from "./store.js";
 import { LaunchInputError, validateLaunch, type LaunchOpts } from "./launch.js";
 import { listShelf, readShelfItem } from "./shelf.js";
 import type { Term } from "./pty.js";
+import type { Chat } from "./chat.js";
+import type { HistoryItem } from "./history.js";
 import { exploreState, setExplore, UserOwnedError } from "./agents.js";
 
 const MAX_BODY = 16_384;
@@ -47,11 +49,13 @@ export async function startServer(opts: {
   claudeDir: string;
   launcher: (opts: LaunchOpts) => Promise<void>;
   pty?: { open(sessionId: string, cwd: string, cols: number, rows: number): Term | null; killAll(): void };
+  chat?: { open(sessionId: string, cwd: string): Chat | null; killAll(): void; history(sessionId: string): Promise<HistoryItem[]> };
 }): Promise<{ url: string; close(): Promise<void> }> {
   const { token, store } = opts;
   const clientRoot = resolve(opts.clientDir);
   const wss = new WebSocketServer({ noServer: true });
   const ptyWss = new WebSocketServer({ noServer: true, maxPayload: 65536 });
+  const chatWss = new WebSocketServer({ noServer: true, maxPayload: 262144 });
   let origins: string[] = [];
 
   const send = (res: ServerResponse, status: number, body: string, type = "text/plain; charset=utf-8") => {
@@ -223,10 +227,60 @@ export async function startServer(opts: {
     } catch {
       return socket.destroy();
     }
-    if (url.pathname !== "/ws" && url.pathname !== "/pty") return reject(404, "Not Found");
+    if (url.pathname !== "/ws" && url.pathname !== "/pty" && url.pathname !== "/chat") return reject(404, "Not Found");
     if (!tokenOk(token, url.searchParams.get("token"))) return reject(401, "Unauthorized");
     const origin = req.headers.origin;
     if (!origin || !origins.includes(origin)) return reject(403, "Forbidden");
+    if (url.pathname === "/chat") {
+      const sid = (url.searchParams.get("session") ?? "").toLowerCase();
+      const s = SESSION_ID.test(sid) ? store.detailSession(sid) : undefined;
+      const hub = opts.chat;
+      if (!s || !hub) return reject(404, "Not Found");
+      let chat;
+      try {
+        chat = hub.open(sid, s.cwd && isDir(s.cwd) ? s.cwd : homedir());
+      } catch {
+        return reject(500, "Internal Server Error");
+      }
+      if (!chat) return reject(503, "Service Unavailable");
+      let up = false;
+      chatWss.handleUpgrade(req, socket, head, (ws) => {
+        up = true;
+        ws.on("error", () => {});
+        // History is async: subscribe now, queue what claude emits until history is sent, then flush in order.
+        let queue: (() => void)[] | null = [];
+        const run = (f: () => void) => (queue ? void queue.push(f) : f());
+        const out = (o: unknown) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(o));
+        };
+        chat.onEvent((e) => run(() => out({ t: "ev", e })));
+        chat.onExit((code) => run(() => ws.close(4000, String(code))));
+        ws.on("close", () => chat.kill());
+        void hub.history(sid).catch((): HistoryItem[] => []).then((items) => {
+          out({ t: "history", items });
+          const q = queue!;
+          queue = null;
+          q.forEach((f) => f());
+        });
+        ws.on("message", (raw) => {
+          let m: { t?: unknown; text?: unknown; id?: unknown };
+          try {
+            m = JSON.parse(raw.toString());
+          } catch {
+            return;
+          }
+          try {
+            if (m?.t === "say" && typeof m.text === "string" && m.text.length > 0 && m.text.length <= 100000) chat.say(m.text);
+            else if ((m?.t === "allow" || m?.t === "deny") && typeof m.id === "string" && chat.pending(m.id)) chat.answer(m.id, m.t === "allow");
+            else if (m?.t === "stop") chat.interrupt();
+          } catch {
+            // the process may have exited; the 4000 close follows
+          }
+        });
+      });
+      if (!up) chat.kill(); // invalid handshake: ws aborted without calling back
+      return;
+    }
     if (url.pathname === "/pty") {
       const sid = (url.searchParams.get("session") ?? "").toLowerCase(); // store ids are lowercase
       const s = SESSION_ID.test(sid) ? store.detailSession(sid) : undefined; // the id goes on a command line
@@ -302,7 +356,10 @@ export async function startServer(opts: {
       wss.close();
       for (const c of ptyWss.clients) c.terminate();
       ptyWss.close();
+      for (const c of chatWss.clients) c.terminate();
+      chatWss.close();
       opts.pty?.killAll();
+      opts.chat?.killAll();
       server.closeAllConnections();
       await new Promise<void>((ok) => server.close(() => ok()));
     },
