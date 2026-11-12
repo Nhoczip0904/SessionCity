@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Panel } from "../src/client/panel.js";
-import { renderLaunchDialog, renderModelRules, showDialog, type LaunchOpts } from "../src/client/launcher.js";
+import { confirmDialog, renderLaunchDialog, renderModelRules, showDialog, type LaunchOpts } from "../src/client/launcher.js";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const q = <T extends Element>(root: Element, sel: string) => root.querySelector(sel) as T;
@@ -155,5 +155,23 @@ describe("launch preset", () => {
     const e = renderLaunchDialog(["/a"], async () => null, "/z");
     expect(q<HTMLSelectElement>(e, "select.folder").value).toBe("/z");
     expect(e.querySelectorAll("select.folder option").length).toBe(2);
+  });
+});
+
+describe("confirmDialog", () => {
+  const btn = (t: string) => [...document.querySelectorAll<HTMLButtonElement>(".dialog button")].find((b) => b.textContent === t)!;
+  afterEach(() => document.querySelectorAll(".dialog").forEach((d) => d.remove()));
+  it("ok resolves true", async () => {
+    const p = confirmDialog("x", "Vẫn mở", "Huỷ");
+    btn("Vẫn mở").click();
+    expect(await p).toBe(true);
+  });
+  it("cancel and ✕ resolve false", async () => {
+    let p = confirmDialog("x", "Vẫn mở", "Huỷ");
+    btn("Huỷ").click();
+    expect(await p).toBe(false);
+    p = confirmDialog("x", "Vẫn mở", "Huỷ");
+    btn("✕").click();
+    expect(await p).toBe(false);
   });
 });

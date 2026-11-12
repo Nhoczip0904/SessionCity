@@ -60,6 +60,29 @@ export function showDialog(d: HTMLElement) {
   d.querySelector<HTMLElement>("select, input, textarea")?.focus();
 }
 
+/** Yes/no dialog; closing it (✕, backdrop, Esc) counts as cancel. */
+export function confirmDialog(text: string, ok: string, cancel: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const yes = el("button", ok, "go");
+    const no = el("button", cancel);
+    yes.type = no.type = "button";
+    const root = frame("Xác nhận", el("div", text, "note"), yes, no);
+    const done = (v: boolean) => {
+      obs.disconnect();
+      resolve(v);
+    };
+    // frame() removes the root on ✕/backdrop/Esc; resolve(false) then
+    const obs = new MutationObserver(() => root.isConnected || done(false));
+    yes.onclick = () => {
+      root.remove();
+      done(true);
+    };
+    no.onclick = () => root.remove();
+    showDialog(root);
+    obs.observe(document.body, { childList: true });
+  });
+}
+
 export function renderLaunchDialog(folders: string[], onSubmit: (opts: LaunchOpts) => Promise<string | null>, preset?: string): HTMLElement {
   const list = preset && !folders.includes(preset) ? [preset, ...folders] : folders;
   const folder = select("folder", list.map((f) => [f, f]));
