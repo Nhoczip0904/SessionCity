@@ -15,8 +15,6 @@ export interface LaunchOpts {
   model?: Alias;
   subagentModel?: SubAlias;
   prompt?: string;
-  /** Session id to reopen with `claude --resume`; set by the server, never from the launch form. */
-  resume?: string;
 }
 
 const MAX_PROMPT = 4000;
@@ -140,7 +138,7 @@ export function launch(
     try {
       if (!/\.exe$/i.test(deps.claude)) throw new LaunchInputError("Đường dẫn claude phải là tệp .exe");
       const settingsFile = opts.subagentModel ? write("backendcity", settingsJson(opts.subagentModel)) : undefined;
-      const job = { claude: deps.claude, model: opts.model, settingsFile, prompt: opts.prompt, resume: opts.resume };
+      const job = { claude: deps.claude, model: opts.model, settingsFile, prompt: opts.prompt };
       const jobFile = write("backendcity-job", JSON.stringify(job));
       const { file, args } = buildLaunch(opts, {
         node: deps.node ?? process.execPath,

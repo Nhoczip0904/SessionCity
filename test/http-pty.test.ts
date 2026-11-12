@@ -147,4 +147,11 @@ describe("/pty websocket", () => {
     expect(opens.length).toBe(before + 1);
     await until(() => term.kills === 1);
   });
+
+  it("the old resume route is gone", async () => {
+    const r = await fetch(`http://127.0.0.1:${p}/api/session/${SID}/resume?token=${TOKEN}`, {
+      method: "POST", headers: { Origin: `http://127.0.0.1:${p}`, "Content-Type": "application/json" }, body: "{}",
+    });
+    expect(r.status).toBe(405);
+  });
 });
