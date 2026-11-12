@@ -5,6 +5,7 @@ import { TILE, type buildCity } from "./city.js";
 import { flyPaper, handoffs } from "./handoff.js";
 import { findPath, type Pt } from "./path.js";
 import { randomRoadTile, wanderTarget } from "./roads.js";
+import { nearestHit } from "./rock.js";
 import * as K from "./tiles.js";
 import type { Outfit, Sheets } from "./tiles.js";
 
@@ -12,6 +13,7 @@ type City = ReturnType<typeof buildCity>;
 export type PickKind = "session" | "employee";
 const SPEED = 6 / 1000; // tiles per ms
 const MAX_EMPLOYEES = 8;
+const DOWN_MS = 1500;
 const PALETTE = [0xe6194b, 0x3cb44b, 0xffe119, 0x4363d8, 0xf58231, 0x911eb4, 0x46f0f0, 0xf032e6, 0xbcf60c, 0xfabebe, 0x008080, 0xe6beff];
 const LIVE_TEXT = {
   style: { fontFamily: 'Consolas, "DejaVu Sans Mono", "Courier New", monospace', fontSize: 7, fill: 0xffffff, stroke: { color: 0x111111, width: 2 } },
@@ -82,6 +84,8 @@ interface Actor {
   wait: number; // ms until the next wander step
   citizen?: boolean;
   lane: number; // px to the right of the walking direction
+  down?: number; // ms left lying on the ground after a rock hit
+  ouch?: Text;
 }
 
 export class Actors {
@@ -377,10 +381,34 @@ export class Actors {
     a.wait = 1000 + 3000 * this.opts.rand();
   }
 
+  /** A rock landed at (x, y) in the layer: whoever it hits falls over, says "Ối!" and gets up again. */
+  hit(at: Pt): boolean {
+    const all = [...this.mayors.values(), ...this.staff.values(), ...this.citizens];
+    const a = all[nearestHit(all.map((x) => ({ x: x.c.x, y: x.c.y })), at)];
+    if (!a) return false;
+    a.down = DOWN_MS;
+    a.fig.rotation = (a.fig.scale.x < 0 ? -1 : 1) * Math.PI / 2;
+    if (!a.ouch) {
+      a.ouch = new Text({ text: "Ối!", ...LIVE_TEXT, style: { ...LIVE_TEXT.style, fontSize: 8, fontWeight: "bold", fill: 0xffd23f } });
+      a.ouch.anchor.set(0.5, 1);
+      a.ouch.y = -18;
+      a.c.addChild(a.ouch);
+    }
+    a.ouch.visible = true;
+    return true;
+  }
+
   update(dtMs: number): void {
     this.clock += dtMs;
     const stacks = new Map<number, number>(); // tile key -> actors already standing there
     for (const a of [...this.mayors.values(), ...this.staff.values(), ...this.citizens]) {
+      if (a.down !== undefined) {
+        a.down -= dtMs;
+        if (a.down > 0) continue; // lying on the ground: no walking
+        a.down = undefined;
+        a.fig.rotation = 0;
+        if (a.ouch) a.ouch.visible = false;
+      }
       let step = dtMs * SPEED, hx = 0, hy = 0;
       while (step > 0 && a.path.length) {
         const n = a.path[0], dx = n.x - a.tx, dy = n.y - a.ty, d = Math.abs(dx) + Math.abs(dy);

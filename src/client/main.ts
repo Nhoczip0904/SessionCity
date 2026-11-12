@@ -1,6 +1,7 @@
 import { Application, Container, Rectangle, Sprite, Texture, TextureStyle, type Graphics } from "pixi.js";
 import type { Employee, Session, SessionDetail, Shelf } from "../shared/types.js";
 import { Actors } from "./actors.js";
+import { flyRock } from "./rock.js";
 import { TILE, buildCity } from "./city.js";
 import { createHud } from "./hud.js";
 import { renderLaunchDialog, showDialog, showRules, type ExploreState, type LaunchOpts } from "./launcher.js";
@@ -125,6 +126,16 @@ async function main() {
   };
   const actors = new Actors(city, layer, bake, sheets, onPick, onEnter);
   const traffic = new Traffic(cars, sheets);
+  // rock mode: a see-through sheet over the map takes the clicks; stones fly from the bottom edge of the map
+  const aim = new Container();
+  aim.hitArea = new Rectangle(0, 0, W, H);
+  aim.eventMode = "none";
+  aim.cursor = "crosshair";
+  aim.on("pointertap", (e) => {
+    const to = e.getLocalPosition(layer);
+    flyRock(layer, { x: to.x * 0.6 + W * 0.2, y: H }, to, () => void actors.hit(to));
+  });
+  world.addChild(aim);
   app.ticker.add((t) => {
     actors.update(t.deltaMS);
     traffic.update(t.deltaMS);
@@ -216,6 +227,7 @@ async function main() {
     },
   });
   const hud = createHud({
+    rock: (armed) => (aim.eventMode = armed ? "static" : "none"),
     launch: () => openLaunch(),
     rules: () =>
       void showRules(

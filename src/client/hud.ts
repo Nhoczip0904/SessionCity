@@ -9,9 +9,15 @@ const CONN_TEXT: Record<Conn, string> = {
   auth: "Thiếu token",
 };
 
-export function createHud(on: { launch: () => void; rules: () => void }) {
+export function createHud(on: { launch: () => void; rules: () => void; rock: (armed: boolean) => void }) {
   $("btn-launch").onclick = on.launch;
   $("btn-rules").onclick = on.rules;
+  const rock = $("btn-rock");
+  rock.onclick = () => {
+    const armed = rock.getAttribute("aria-pressed") !== "true";
+    rock.setAttribute("aria-pressed", String(armed));
+    on.rock(armed);
+  };
   return {
     setCounts(sessions: Session[]) {
       for (const k of ["working", "waiting", "idle"] as const) $(`n-${k}`).textContent = String(sessions.filter((s) => s.status === k).length);

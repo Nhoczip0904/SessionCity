@@ -16,6 +16,7 @@
       #hud b { color: #fff; }
       #hud button, .dialog button.go { font: inherit; color: #eee; background: #26262e; border: 1px solid #000; padding: 2px 8px; cursor: pointer; }
       #hud button:hover, .dialog button.go:hover:not(:disabled) { background: #33333e; }
+      #hud button[aria-pressed="true"] { background: #6a4a1a; border-color: #ffd23f; }
       .dot { width: 10px; height: 10px; border-radius: 50%; background: #888; margin-left: auto; }
       .dot.open { background: #4caf50; }
       .dot.connecting, .dot.closed { background: #f0a030; }
@@ -90,6 +91,7 @@
       <span class="idle">Nghỉ <b id="n-idle">0</b></span>
       <button id="btn-launch" type="button">+ Mở phiên</button>
       <button id="btn-rules" type="button">Quy tắc model</button>
+      <button id="btn-rock" type="button" aria-pressed="false" title="Bật rồi bấm lên bản đồ để chọi đá người đi đường">🪨 Chọi đá</button>
       <span id="conn" class="dot connecting" title="Đang kết nối…"></span>
     </div>
     <div id="hint" hidden></div>
