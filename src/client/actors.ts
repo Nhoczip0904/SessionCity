@@ -63,6 +63,9 @@ export const restTarget = (home: Pt, wander: boolean, walkable: boolean[][], ran
 /** Sideways offsets (px) people keep while walking, so two on the same path walk side by side. */
 const LANES = [-4, 4, -2, 2, 0];
 
+/** A stable per-person number from an id, so each employee keeps the same hair and clothes. */
+export const lookOf = (id: string) => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 1000;
+
 const outfitFor = (type: string): Outfit =>
   type === "Explore" ? K.OUTFIT_EXPLORE
   : type === "Plan" ? K.OUTFIT_PLAN
@@ -154,7 +157,7 @@ export class Actors {
     a.citizen = true;
     a.wander = true;
     this.dress(a, "citizen", () => {
-      if (this.sheets) return this.figure(0, K.OUTFIT_CITIZEN, true, this.citizens.length + 3);
+      if (this.sheets) return this.figure(0, K.OUTFIT_CITIZEN, true, 50 + this.citizens.length);
       const spr = new Sprite(this.tex(0x999999, true));
       spr.anchor.set(0.5, 1);
       return spr;
@@ -170,7 +173,7 @@ export class Actors {
   }
 
   /** Part 1 figure without sheets, else layered Kenney sprites (16×16, feet at the origin). */
-  /** An anime girl: long tinted hair, big eyes, blush and a skirt over the outfit's shirt colour; `look` picks hair and skirt. */
+  /** An anime girl over the outfit's shirt: hair style and colour, skirt and bow all picked by `look`, so everyone differs. */
   private figure(slot: number, outfit: Outfit, small: boolean, look = slot): Container {
     if (!this.sheets) {
       const base = PALETTE[slot % PALETTE.length];
@@ -192,12 +195,17 @@ export class Actors {
     // sprite pixels: head x 4–11 rows 2–6 (eyes on row 5), pants rows 13–15
     const face = new Graphics();
     const px = (x: number, y: number, w: number, h: number, c: number, a = 1) => face.rect(x - 8, y - 16, w, h).fill({ color: c, alpha: a });
-    px(3, 12, 10, 1, K.SKIRTS[look % K.SKIRTS.length]).rect(-6, -3, 12, 2).fill(K.SKIRTS[look % K.SKIRTS.length]); // skirt over the pants
+    const pick = <T,>(list: readonly T[], k: number) => list[(look * k + 1) % list.length];
+    const skirt = pick(K.SKIRTS, 5);
+    px(3, 12, 10, 1, skirt).rect(-6, -3, 12, 2).fill(skirt); // skirt over the pants
     px(5, 4, 2, 2, 0x2a3a8a); px(9, 4, 2, 2, 0x2a3a8a); // big eyes
     px(5, 4, 1, 1, 0xffffff); px(9, 4, 1, 1, 0xffffff); // shine
     px(5, 6, 1, 1, 0xff8aa0, 0.8); px(10, 6, 1, 1, 0xff8aa0, 0.8); // blush
     fig.addChild(face);
-    add(K.LONG_HAIR, K.ANIME_HAIR[look % K.ANIME_HAIR.length]);
+    const hair = pick(K.ANIME_HAIR, 7);
+    for (const f of K.HAIR_STYLES[look % K.HAIR_STYLES.length]) add(f, hair);
+    const bow = new Graphics().rect(1, -15, 3, 2).fill(pick(K.BOWS, 3)).rect(2, -15, 1, 2).fill({ color: 0x000000, alpha: 0.25 });
+    fig.addChild(bow);
     if (outfit.item) add(outfit.item);
     return fig;
   }
@@ -261,7 +269,7 @@ export class Actors {
       return slot === undefined ? null : this.figure(slot, K.OUTFIT_MAYOR, false);
     }
     const e = this.lastStaff.get(id), slot = e && this.slots.get(e.sessionId);
-    return e && slot !== undefined ? this.figure(slot, outfitFor(e.type), true) : null;
+    return e && slot !== undefined ? this.figure(slot, outfitFor(e.type), true, lookOf(id)) : null;
   }
 
   sync(state: State): void {
@@ -342,7 +350,7 @@ export class Actors {
         }
         a.label.text = e.type;
         const outfit = outfitFor(e.type);
-        this.dress(a, this.sheets ? `${outfit.shirt}|${outfit.own}|${outfit.item}` : "staff", () => this.figure(slot, outfit, true));
+        this.dress(a, this.sheets ? `${outfit.shirt}|${outfit.own}|${outfit.item}` : "staff", () => this.figure(slot, outfit, true, lookOf(e.id)));
         this.setHome(a, this.door(e.district), true);
       }
       const extra = list.length - MAX_EMPLOYEES;

@@ -121,10 +121,20 @@ export type Frame = readonly [number, number];
 export const CHAR_BODY: Frame = [0, 0];
 export const PANTS: Frame = [3, 0], SHOES: Frame = [4, 0];
 export const HAIR: Frame = [19, 0], MAYOR_HAIR: Frame = [23, 0];
-/** Long white hair down to the shoulders, tinted per person for the anime look. */
-export const LONG_HAIR: Frame = [20, 8];
-export const ANIME_HAIR = [0xff8ac8, 0x7ac8ff, 0xb89aff, 0x7ae8c0, 0xffe07a, 0xe8e8f0, 0xff7a7a, 0xffb070];
-export const SKIRTS = [0x2a3a6a, 0x8a2a4a, 0x3a6a4a, 0x5a3a7a, 0x2a2a2a, 0x7a4a2a];
+/** Anime hair styles built from the white hair frames (no beards), layered and tinted per person. */
+export const HAIR_STYLES: Frame[][] = [
+  [[20, 8]], // long
+  [[22, 9]], // very long
+  [[20, 9]], // side ponytail
+  [[21, 9]], // side ponytail, other side
+  [[20, 9], [21, 9]], // twin tails
+  [[19, 8]], // bob
+  [[19, 8], [20, 10]], // bob with a bun
+  [[20, 8], [20, 10]], // long with a bun
+];
+export const ANIME_HAIR = [0xff8ac8, 0x7ac8ff, 0xb89aff, 0x7ae8c0, 0xffe07a, 0xff7a7a, 0xffa050, 0xa0703a, 0x4a4a62];
+export const SKIRTS = [0x2a3a6a, 0x8a2a4a, 0x3a6a4a, 0x5a3a7a, 0x2a2a2a, 0x7a4a2a, 0xc04a7a];
+export const BOWS = [0xff3a6a, 0xffffff, 0xffd23f, 0x3a8aff, 0x8a3aff];
 export const MAGNIFIER: Frame = [37, 0], SCROLL: Frame = [36, 1];
 // shirt colour blocks (orange, teal, lavender, green, gray, black): top-left of a 4×3 group that is laid out the same in each colour
 export const SHIRT_COLORS: Frame[] = [[6, 0], [10, 0], [14, 0], [6, 5], [10, 5], [14, 5]];
@@ -133,7 +143,7 @@ export const TSHIRT: Frame = [0, 0], SHIRT: Frame = [1, 0], JACKET: Frame = [1, 
 
 /** `own`: `shirt` is an offset inside the session's colour block; otherwise an absolute frame. */
 export interface Outfit { shirt: Frame; own: boolean; hair: Frame; item?: Frame }
-export const OUTFIT_MAYOR: Outfit = { shirt: SUIT, own: true, hair: MAYOR_HAIR };
+export const OUTFIT_MAYOR: Outfit = { shirt: SHIRT, own: true, hair: MAYOR_HAIR };
 export const OUTFIT_EXPLORE: Outfit = { shirt: JACKET, own: true, hair: HAIR, item: MAGNIFIER };
 export const OUTFIT_PLAN: Outfit = { shirt: SHIRT, own: true, hair: HAIR, item: SCROLL };
 export const OUTFIT_GENERAL: Outfit = { shirt: TSHIRT, own: true, hair: HAIR };
