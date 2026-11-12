@@ -184,7 +184,7 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
 
   /** Chair, desk and screen; the person (if any) sits between chair and desk. In a hall only the big desk has one. */
   const desk = theme.desk ?? { tiles: K.IN_DESK, monitor: true };
-  const hall = theme.layout === "hall", lounge = theme.layout === "lounge";
+  const hall = theme.layout === "hall", lounge = theme.layout === "lounge", site = theme.layout === "site";
   const span = (big: boolean) => (big ? { left: -1, w: 3 } : hall || lounge ? { left: 0, w: 1 } : { left: 0, w: 2 });
   const station = (x: number, y: number, big: boolean, fig: Container | null, on: boolean, back = false): Container => {
     const { w } = span(big), left = x + span(big).left;
@@ -197,6 +197,35 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
         fig.position.set(Math.round(cx), (y + 1) * T - 1);
         c.addChild(fig);
       }
+      return c;
+    }
+    if (site) {
+      // a builder in a hard hat behind a 2-wide brick wall; while working the bricks go up one by one
+      blob(cx, (y + 2) * T - 1, w * T * 0.45);
+      if (fig) {
+        fig.position.set(Math.round(cx), (y + 1) * T + 6);
+        const top = fig.y - fig.height;
+        c.addChild(fig, new Graphics().rect(cx - 4, top - 1, 8, 3).fill(0xf2c200).rect(cx - 5, top + 1, 10, 1).fill(0xc89a00));
+      }
+      const wall = new Graphics();
+      wall.eventMode = "none";
+      const wx = left * T, wy = (y + 1) * T, phase = (x * 7 + y * 3) % 16;
+      const bricks = (n: number, t: number) => {
+        wall.clear().rect(wx, wy + T - 2, w * T, 2).fill(0x6e6a64); // footing
+        for (let i = 0; i < n; i++) {
+          const row = Math.floor(i / 4), col = i % 4, odd = row % 2 === 1;
+          // odd courses are staggered: three full bricks and a half brick at the left end
+          const [bx, bw] = odd ? (col === 3 ? [0, 3] : [col * 8 + 4, 7]) : [col * 8, 7];
+          wall.rect(wx + bx, wy + T - 6 - row * 4, bw, 3).fill(odd ? 0xb5523b : 0xa8472f);
+        }
+        if (on && n < 16 && Math.floor(t / 120) % 2) { // sparks where the next brick goes
+          const row = Math.floor(n / 4), col = n % 4;
+          wall.rect(wx + col * 8 + 3, wy + T - 8 - row * 4, 1, 1).fill(0xffe066).rect(wx + col * 8 + 5, wy + T - 9 - row * 4, 1, 1).fill(0xffffff);
+        }
+      };
+      if (on) wall.onRender = () => { const t = performance.now(); bricks(Math.min(16, Math.floor(t / 500 + phase) % 22), t); };
+      bricks(on ? phase : 6, 0); // empty spot: a half-built wall
+      c.addChild(wall);
       return c;
     }
     if (lounge) {
