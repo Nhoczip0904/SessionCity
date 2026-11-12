@@ -124,20 +124,6 @@ export async function startServer(opts: {
     }
   };
 
-  /** Reopens a session in a new terminal: `claude --resume <id>` in its folder. */
-  async function resumeRoute(req: IncomingMessage, res: ServerResponse, sessionId: string) {
-    if ((await readJson(req, res)) === undefined) return;
-    // only a session the store is watching, and only an id shaped like one: it goes on a command line
-    const s = SESSION_ID.test(sessionId) ? store.detailSession(sessionId) : undefined;
-    if (!s) return json(res, 404, { error: "not found" });
-    try {
-      await opts.launcher({ cwd: s.cwd && isDir(s.cwd) ? s.cwd : homedir(), resume: sessionId });
-      json(res, 200, { ok: true });
-    } catch {
-      json(res, 500, { error: "Không mở được terminal" });
-    }
-  }
-
   async function launchRoute(req: IncomingMessage, res: ServerResponse) {
     const body = await readJson(req, res);
     if (body === undefined || res.headersSent) return;
@@ -192,23 +178,13 @@ export async function startServer(opts: {
       return send(res, 400, "bad request");
     }
     const api = url.pathname.startsWith("/api/");
-    const desk = /^\/api\/session\/([^/]+)\/resume$/.exec(url.pathname);
-    const allowed = url.pathname === "/api/launch" || desk ? ["POST"] : url.pathname === "/api/agents/explore" ? ["GET", "PUT"] : ["GET"];
+    const allowed = url.pathname === "/api/launch" ? ["POST"] : url.pathname === "/api/agents/explore" ? ["GET", "PUT"] : ["GET"];
     if (!allowed.includes(req.method ?? "")) return send(res, 405, "method not allowed");
     if (api) {
       if (!tokenOk(token, url.searchParams.get("token"))) return send(res, 401, "unauthorized");
       if (url.pathname === "/api/launch") return void launchRoute(req, res);
       if (url.pathname === "/api/agents/explore") return void exploreRoute(req, res);
       if (url.pathname === "/api/state") return send(res, 200, JSON.stringify(store.snapshot()), TYPES[".json"]);
-      if (desk) {
-        let sid: string;
-        try {
-          sid = decodeURIComponent(desk[1]!);
-        } catch {
-          return json(res, 400, { error: "bad request" });
-        }
-        return void resumeRoute(req, res, sid);
-      }
       const sh = /^\/api\/session\/([^/]+)\/shelf(?:\/([^/]+))?$/.exec(url.pathname);
       if (sh) {
         let sid: string, item: string | undefined;
