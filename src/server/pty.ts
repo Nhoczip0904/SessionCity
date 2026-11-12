@@ -45,7 +45,9 @@ export class PtyHub {
       this.live.delete(entry);
     });
     const kill = () => {
-      if (!entry.exited) proc.kill();
+      if (entry.exited) return;
+      entry.exited = true; // node-pty throws on a second kill
+      proc.kill();
     };
     return {
       onData: (cb) => void proc.onData(cb),
@@ -59,6 +61,7 @@ export class PtyHub {
   killAll(): void {
     for (const e of [...this.live]) {
       if (!e.exited) e.proc.kill();
+      e.exited = true;
       this.live.delete(e);
     }
   }
