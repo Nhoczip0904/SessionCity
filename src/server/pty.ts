@@ -1,0 +1,65 @@
+export interface PtyProc {
+  onData(cb: (d: string) => void): unknown;
+  onExit(cb: (e: { exitCode: number }) => void): unknown;
+  write(d: string): void;
+  resize(cols: number, rows: number): void;
+  kill(): void;
+}
+export type PtySpawn = (
+  file: string,
+  args: string[],
+  opts: { name: string; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv },
+) => PtyProc;
+export interface Term {
+  onData(cb: (d: string) => void): void;
+  onExit(cb: (code: number) => void): void;
+  write(d: string): void;
+  resize(cols: number, rows: number): void;
+  kill(): void;
+}
+
+interface Entry {
+  proc: PtyProc;
+  exited: boolean;
+}
+
+export class PtyHub {
+  private live = new Set<Entry>();
+  constructor(
+    private spawn: PtySpawn,
+    private claude: string | null,
+    private max = 3,
+  ) {}
+
+  get size(): number {
+    return this.live.size;
+  }
+
+  open(sessionId: string, cwd: string, cols: number, rows: number): Term | null {
+    if (!this.claude || this.live.size >= this.max) return null;
+    const proc = this.spawn(this.claude, ["--resume", sessionId], { name: "xterm-256color", cols, rows, cwd, env: process.env });
+    const entry: Entry = { proc, exited: false };
+    this.live.add(entry);
+    proc.onExit(() => {
+      entry.exited = true;
+      this.live.delete(entry);
+    });
+    const kill = () => {
+      if (!entry.exited) proc.kill();
+    };
+    return {
+      onData: (cb) => void proc.onData(cb),
+      onExit: (cb) => void proc.onExit((e) => cb(e.exitCode)),
+      write: (d) => proc.write(d),
+      resize: (c, r) => proc.resize(c, r),
+      kill,
+    };
+  }
+
+  killAll(): void {
+    for (const e of [...this.live]) {
+      if (!e.exited) e.proc.kill();
+      this.live.delete(e);
+    }
+  }
+}
