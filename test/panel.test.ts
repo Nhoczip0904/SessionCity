@@ -130,42 +130,60 @@ describe("Panel", () => {
   });
 
   const CONFIRM = "Phiên này có thể đang mở ở chỗ khác (app desktop hoặc terminal). Mở thêm sẽ có hai nơi cùng ghi vào một cuộc trò chuyện.";
-  const setup = async (status: "idle" | "waiting", isOpen = false, ok = true) => {
+  const setup = async (status: "idle" | "waiting", isOpen: "chat" | "terminal" | null = null, ok = true) => {
     const root = document.createElement("div");
     const d = session({ id: "s1", status });
-    const terminal = { isOpen: vi.fn(() => isOpen), open: vi.fn(), confirm: vi.fn().mockResolvedValue(ok) };
-    const p = new Panel(root, vi.fn().mockResolvedValue(d), terminal);
+    const overlays = { isOpen: vi.fn(() => isOpen), chat: vi.fn(), terminal: vi.fn(), confirm: vi.fn().mockResolvedValue(ok) };
+    const p = new Panel(root, vi.fn().mockResolvedValue(d), overlays);
     await p.open("session", "s1");
-    const btn = root.querySelector("button.desktop") as HTMLButtonElement;
-    return { root, d, terminal, btn };
+    const btns = [...root.querySelectorAll("button.desktop")] as HTMLButtonElement[];
+    return { root, p, d, overlays, chat: btns[0], term: btns[1], btns };
   };
-  it("waiting session: confirms first; open only when confirmed", async () => {
-    let t = await setup("waiting", false, false);
-    expect(t.btn.textContent).toBe("Mở phiên trong terminal");
-    t.btn.click();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(t.terminal.confirm).toHaveBeenCalledWith(CONFIRM);
-    expect(t.terminal.open).not.toHaveBeenCalled();
-    t = await setup("waiting", false, true);
-    t.btn.click();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(t.terminal.open).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
-  });
-  it("idle session: opens straight away", async () => {
+  it("mayor panel shows Chat and Terminal", async () => {
     const t = await setup("idle");
-    t.btn.click();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(t.terminal.confirm).not.toHaveBeenCalled();
-    expect(t.terminal.open).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
+    expect(t.btns.map((b) => b.textContent)).toEqual(["Chat", "Terminal"]);
   });
-  it("button is disabled while a terminal is open", async () => {
-    const t = await setup("idle", true);
-    expect(t.btn.disabled).toBe(true);
-    expect(t.btn.textContent).toBe("Terminal đang mở");
+  it("working session confirms before either; Huỷ opens nothing; idle opens directly", async () => {
+    for (const [which, fn] of [["chat", "chat"], ["term", "terminal"]] as const) {
+      let t = await setup("waiting", null, false);
+      t[which].click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(t.overlays.confirm).toHaveBeenCalledWith(CONFIRM);
+      expect(t.overlays[fn]).not.toHaveBeenCalled();
+      t = await setup("waiting", null, true);
+      t[which].click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(t.overlays[fn]).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
+      t = await setup("idle");
+      t[which].click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(t.overlays.confirm).not.toHaveBeenCalled();
+      expect(t.overlays[fn]).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
+    }
   });
-  it("no terminal button for an employee, or without a terminal", async () => {
+  it("while chat is open both are disabled and Chat reads 'Đang mở chat'", async () => {
+    const t = await setup("idle", "chat");
+    expect(t.btns.map((b) => b.disabled)).toEqual([true, true]);
+    expect(t.chat.textContent).toBe("Đang mở chat");
+    expect(t.term.textContent).toBe("Terminal");
+  });
+  it("while the terminal is open both are disabled and Terminal reads 'Terminal đang mở'", async () => {
+    const t = await setup("idle", "terminal");
+    expect(t.btns.map((b) => b.disabled)).toEqual([true, true]);
+    expect(t.term.textContent).toBe("Terminal đang mở");
+    expect(t.chat.textContent).toBe("Chat");
+  });
+  it("shows() tells whether the panel still shows that actor", async () => {
+    const t = await setup("idle");
+    expect(t.p.shows("session", "s1")).toBe(true);
+    expect(t.p.shows("session", "s2")).toBe(false);
+    expect(t.p.shows("employee", "s1")).toBe(false);
+    t.p.close();
+    expect(t.p.shows("session", "s1")).toBe(false);
+  });
+  it("employees get no buttons; neither does a panel without overlays", async () => {
     const root = document.createElement("div");
-    const p = new Panel(root, vi.fn().mockResolvedValue(employee()), { isOpen: () => false, open: vi.fn(), confirm: vi.fn() });
+    const p = new Panel(root, vi.fn().mockResolvedValue(employee()), { isOpen: () => null, chat: vi.fn(), terminal: vi.fn(), confirm: vi.fn() });
     await p.open("employee", "e1");
     expect(root.querySelector("button.desktop")).toBeNull();
     expect(renderSession(session(), NOW, () => {}).querySelector("button.desktop")).toBeNull();
