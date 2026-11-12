@@ -32,15 +32,7 @@ const agentsDir = join(homedir(), ".claude", "agents");
 const launcher = claude
   ? (opts: LaunchOpts) => launch(opts, { claude, wt, spawn, tmpDir: tmpdir(), setTimeout })
   : () => Promise.reject(new Error("claude not found"));
-// claude hands the session to the Desktop app and exits; no terminal window
-const openDesktop = (id: string, cwd: string | undefined) =>
-  new Promise<void>((ok, fail) => {
-    if (!claude) return fail(new Error("claude not found"));
-    const child = spawn(claude, ["--desktop", "--resume", id], { cwd: cwd ?? homedir(), detached: true, stdio: "ignore", shell: false, windowsHide: true });
-    child.once("error", fail);
-    child.once("spawn", () => { child.unref(); ok(); });
-  });
-const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), launcher, openDesktop });
+const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), launcher });
 await watcher.start();
 console.log(server.url);
 if (!claude) console.error("Chưa tìm thấy claude.exe — nút Mở phiên sẽ báo lỗi (cài: winget install Anthropic.ClaudeCode)");

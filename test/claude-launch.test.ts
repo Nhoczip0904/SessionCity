@@ -51,6 +51,20 @@ describe("runJob", () => {
     expect(s.exit).toHaveBeenCalledWith(3);
   });
 
+  it("resume → claude --resume <id>, nothing else", async () => {
+    const id = "29b8e93b-ef21-47c9-b0e5-d293accee304";
+    const s = setup({ claude: "c.exe", resume: id });
+    await runJob("job.json", s.deps);
+    expect((s.spawn.mock.calls[0] as any[])[1]).toEqual(["--resume", id]);
+  });
+
+  it.each(["--help", "abc", "29b8e93b-ef21-47c9-b0e5-d293accee304 --x", 5])("refuses a resume id that is not a session id: %j", async (resume) => {
+    const s = setup({ claude: "c.exe", resume });
+    await runJob("job.json", s.deps);
+    expect(s.spawn).not.toHaveBeenCalled();
+    expect(s.exit).toHaveBeenCalledWith(1);
+  });
+
   it("no optional fields → no args", async () => {
     const s = setup({ claude: "c.exe" });
     await runJob("job.json", s.deps);

@@ -116,7 +116,7 @@ async function main() {
   };
   const panelRoot = document.getElementById("panel")!;
   const panel = new Panel(panelRoot, fetchDetail, (id) =>
-    send("POST", `/api/session/${encodeURIComponent(id)}/desktop`, {}).then((r) => (typeof r === "string" ? r : null)));
+    send("POST", `/api/session/${encodeURIComponent(id)}/resume`, {}).then((r) => (typeof r === "string" ? r : null)));
   const onPick = (kind: Kind, id: string) => {
     tip.hide();
     void panel.open(kind, id);
