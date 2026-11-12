@@ -46,7 +46,7 @@ export async function history(file: string, n = 50): Promise<HistoryItem[]> {
     if (!isObj(rec) || !isObj(rec.message)) continue;
     const c = rec.message.content;
     const parts = Array.isArray(c) ? c.filter(isObj) : [];
-    if (rec.type === "user" && rec.isMeta !== true) {
+    if (rec.type === "user" && rec.isMeta !== true && rec.isCompactSummary !== true) {
       const t = typeof c === "string" ? c : parts.filter((b) => b.type === "text" && typeof b.text === "string").map((b) => b.text).join("\n");
       if (t.trim() && !NOT_TYPED.test(t)) out.push({ role: "user", text: cut(t) });
     } else if (rec.type === "assistant") {
