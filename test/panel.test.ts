@@ -129,26 +129,26 @@ describe("Panel", () => {
     vi.useRealTimers();
   });
 
-  it("session panel has an Open in Claude Desktop button; the result shows and outlives a redraw", async () => {
+  it("session panel has an Open in terminal button; the result shows and outlives a redraw", async () => {
     const root = document.createElement("div");
     const fetchDetail = vi.fn().mockResolvedValue(session({ id: "s1" }));
-    const openDesktop = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce("Không mở được Claude Desktop");
+    const openDesktop = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce("Không mở được terminal");
     const p = new Panel(root, fetchDetail, openDesktop);
     await p.open("session", "s1");
     const btn = () => root.querySelector("button.desktop") as HTMLButtonElement;
-    expect(btn().textContent).toContain("Mở trong Claude Desktop");
+    expect(btn().textContent).toContain("Mở phiên trong terminal");
     btn().click();
     await vi.advanceTimersByTimeAsync(0);
     expect(openDesktop).toHaveBeenCalledWith("s1");
-    expect(root.textContent).toContain("Đã mở trong Claude Desktop");
+    expect(root.textContent).toContain("Đã mở terminal");
     p.onDelta(delta("s1"));
     await vi.advanceTimersByTimeAsync(1000); // body redrawn
-    expect(root.textContent).toContain("Đã mở trong Claude Desktop");
+    expect(root.textContent).toContain("Đã mở terminal");
     btn().click();
     await vi.advanceTimersByTimeAsync(0);
-    expect(root.textContent).toContain("Không mở được Claude Desktop");
+    expect(root.textContent).toContain("Không mở được terminal");
   });
-  it("no Desktop button for an employee, or without an opener", async () => {
+  it("no terminal button for an employee, or without an opener", async () => {
     const root = document.createElement("div");
     const p = new Panel(root, vi.fn().mockResolvedValue(employee()), vi.fn());
     await p.open("employee", "e1");

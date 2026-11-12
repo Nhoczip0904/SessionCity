@@ -14,6 +14,7 @@ const defaults = {
 };
 
 const MODELS = ["opus", "sonnet", "haiku", "fable"];
+const SESSION_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const norm = (p) => (process.platform === "win32" ? path.resolve(p).toLowerCase() : path.resolve(p));
 const settingsOk = (p) =>
   norm(path.dirname(p)) === norm(os.tmpdir()) && /^backendcity-[0-9a-f]{16}\.json$/.test(path.basename(p));
@@ -48,8 +49,9 @@ export async function runJob(jobPath, deps = defaults) {
   // the job file is only a transport; re-check every field before it reaches spawn
   if (job.model != null && !MODELS.includes(job.model)) return fail("Model không hợp lệ");
   if (job.prompt != null && typeof job.prompt !== "string") return fail("Yêu cầu không hợp lệ");
+  if (job.resume != null && !(typeof job.resume === "string" && SESSION_ID.test(job.resume))) return fail("Mã phiên không hợp lệ");
   if (job.settingsFile != null && !(settingsFile && settingsOk(settingsFile))) return fail("Tệp cấu hình không hợp lệ");
-  const args = [
+  const args = job.resume ? ["--resume", job.resume] : [
     ...(job.model ? ["--model", job.model] : []),
     ...(settingsFile ? ["--settings", settingsFile] : []),
     ...(job.prompt ? ["--", job.prompt] : []),

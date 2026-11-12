@@ -87,7 +87,7 @@ export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id
   meta.append(badge(d.status), ` ${[d.branch, d.model].filter(Boolean).join(" · ")} · ${ago(now - Date.parse(d.lastActivity))}`);
   head.append(meta);
   if (onDesktop) {
-    const b = el("button", "Mở trong Claude Desktop", "desktop");
+    const b = el("button", "Mở phiên trong terminal", "desktop");
     b.type = "button";
     b.onclick = onDesktop;
     head.append(b);
@@ -153,7 +153,7 @@ export class Panel {
   constructor(
     private root: HTMLElement,
     private fetchDetail: (kind: Kind, id: string) => Promise<Detail | "gone">,
-    /** Opens a session in Claude Desktop; null when it worked, else the error to show. */
+    /** Reopens a session in a terminal (claude --resume); null when it worked, else the error to show. */
     private openDesktop?: (id: string) => Promise<string | null>,
   ) {
     const close = el("button", "✕", "close");
@@ -206,7 +206,7 @@ export class Panel {
     this.note.hidden = false;
     const err = await this.openDesktop!(id);
     if (this.cur?.id !== id) return;
-    this.note.textContent = err ?? "Đã mở trong Claude Desktop";
+    this.note.textContent = err ?? "Đã mở terminal";
   }
 
   private async refresh() {
