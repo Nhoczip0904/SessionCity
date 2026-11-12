@@ -2,6 +2,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { el } from "./launcher.js";
+import { isChatOpen } from "./chat.js";
 
 export interface TermDeps {
   makeTerm(): { open(el: HTMLElement): void; onData(cb: (d: string) => void): unknown; write(s: string): void; focus(): void; dispose(): void; cols: number; rows: number; fit(): void };
@@ -24,6 +25,7 @@ const defaultDeps: TermDeps = {
 };
 
 export function openTerminal(opts: { sessionId: string; title: string; token: string; onClose: () => void }, deps: TermDeps = defaultDeps): void {
+  if (isChatOpen()) return;
   current?.();
   const root = el("div", undefined, "term-overlay");
   const box = el("div", undefined, "term-box");

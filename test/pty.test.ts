@@ -85,4 +85,17 @@ describe("PtyHub", () => {
     t.resize(3, 3);
     expect([procs[0].write.mock.calls.length, procs[0].resize.mock.calls.length]).toEqual([1, 1]);
   });
+
+  it("isOpen tracks the session until the slot is freed", () => {
+    const { spawn, procs } = fake();
+    const hub = new PtyHub(spawn, "c");
+    const a = hub.open("a", "c", 1, 1)!;
+    hub.open("b", "c", 1, 1);
+    expect(hub.isOpen("a")).toBe(true);
+    expect(hub.isOpen("z")).toBe(false);
+    a.kill();
+    expect(hub.isOpen("a")).toBe(false);
+    procs[1].exit(0);
+    expect(hub.isOpen("b")).toBe(false);
+  });
 });

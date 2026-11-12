@@ -39,6 +39,8 @@ describe("/pty websocket", () => {
   let full = false;
   let boom = false;
   let killAlls = 0;
+  const busy = new Set<string>();
+  const chatBusy = new Set<string>();
   beforeAll(async () => {
     d = await mkdtemp(join(tmpdir(), "http-pty-"));
     const st = new Store();
@@ -56,7 +58,9 @@ describe("/pty websocket", () => {
           return (term = new FakeTerm());
         },
         killAll: () => void killAlls++,
+        isOpen: (s) => busy.has(s),
       },
+      chat: { open: () => null, killAll: () => {}, history: async () => [], isOpen: (s) => chatBusy.has(s) },
     });
     p = Number(new URL(sv.url).port);
   });
@@ -127,7 +131,7 @@ describe("/pty websocket", () => {
   it("close() kills all terminals", async () => {
     const s2 = await startServer({
       port: 0, token: TOKEN, store: new Store(), clientDir: d, claude: null, agentsDir: d, claudeDir: d,
-      launcher: async () => {}, pty: { open: () => null, killAll: () => void killAlls++ },
+      launcher: async () => {}, pty: { open: () => null, killAll: () => void killAlls++, isOpen: () => false },
     });
     await s2.close();
     expect(killAlls).toBe(1);
@@ -165,5 +169,16 @@ describe("/pty websocket", () => {
     const { ws } = await connect(`session=${SID}`);
     expect(ws.readyState).toBe(WebSocket.OPEN);
     ws.close();
+  });
+
+  it("409 when the session is already open in a terminal or a chat, before spawning", async () => {
+    const before = opens.length;
+    busy.add(SID);
+    expect((await connect(`session=${SID}`)).status).toBe(409);
+    busy.delete(SID);
+    chatBusy.add(SID);
+    expect((await connect(`session=${SID}`)).status).toBe(409);
+    chatBusy.delete(SID);
+    expect(opens.length).toBe(before);
   });
 });
