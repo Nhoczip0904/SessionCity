@@ -122,6 +122,10 @@ export const CHAR_BODY: Frame = [0, 0];
 export const PANTS: Frame = [3, 0], SHOES: Frame = [4, 0];
 export const HAIR: Frame = [19, 0], MAYOR_HAIR: Frame = [23, 0];
 export const HAT: Frame = [28, 8];
+/** Long white hair down to the shoulders, tinted per person for the anime look. */
+export const LONG_HAIR: Frame = [20, 8];
+export const ANIME_HAIR = [0xff8ac8, 0x7ac8ff, 0xb89aff, 0x7ae8c0, 0xffe07a, 0xe8e8f0, 0xff7a7a, 0xffb070];
+export const SKIRTS = [0x2a3a6a, 0x8a2a4a, 0x3a6a4a, 0x5a3a7a, 0x2a2a2a, 0x7a4a2a];
 export const MAGNIFIER: Frame = [37, 0], SCROLL: Frame = [36, 1];
 // shirt colour blocks (orange, teal, lavender, green, gray, black): top-left of a 4×3 group that is laid out the same in each colour
 export const SHIRT_COLORS: Frame[] = [[6, 0], [10, 0], [14, 0], [6, 5], [10, 5], [14, 5]];
