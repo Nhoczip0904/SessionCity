@@ -129,31 +129,49 @@ describe("Panel", () => {
     vi.useRealTimers();
   });
 
-  it("session panel has an Open in terminal button; the result shows and outlives a redraw", async () => {
+  const CONFIRM = "Phiên này có thể đang mở ở chỗ khác (app desktop hoặc terminal). Mở thêm sẽ có hai nơi cùng ghi vào một cuộc trò chuyện.";
+  const setup = async (status: "idle" | "waiting", isOpen = false, ok = true) => {
     const root = document.createElement("div");
-    const fetchDetail = vi.fn().mockResolvedValue(session({ id: "s1" }));
-    const openDesktop = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce("Không mở được terminal");
-    const p = new Panel(root, fetchDetail, openDesktop);
+    const d = session({ id: "s1", status });
+    const terminal = { isOpen: vi.fn(() => isOpen), open: vi.fn(), confirm: vi.fn().mockResolvedValue(ok) };
+    const p = new Panel(root, vi.fn().mockResolvedValue(d), terminal);
     await p.open("session", "s1");
-    const btn = () => root.querySelector("button.desktop") as HTMLButtonElement;
-    expect(btn().textContent).toContain("Mở phiên trong terminal");
-    btn().click();
+    const btn = root.querySelector("button.desktop") as HTMLButtonElement;
+    return { root, d, terminal, btn };
+  };
+  it("waiting session: confirms first; open only when confirmed", async () => {
+    let t = await setup("waiting", false, false);
+    expect(t.btn.textContent).toBe("Mở phiên trong terminal");
+    t.btn.click();
     await vi.advanceTimersByTimeAsync(0);
-    expect(openDesktop).toHaveBeenCalledWith("s1");
-    expect(root.textContent).toContain("Đã mở terminal");
-    p.onDelta(delta("s1"));
-    await vi.advanceTimersByTimeAsync(1000); // body redrawn
-    expect(root.textContent).toContain("Đã mở terminal");
-    btn().click();
+    expect(t.terminal.confirm).toHaveBeenCalledWith(CONFIRM);
+    expect(t.terminal.open).not.toHaveBeenCalled();
+    t = await setup("waiting", false, true);
+    t.btn.click();
     await vi.advanceTimersByTimeAsync(0);
-    expect(root.textContent).toContain("Không mở được terminal");
+    expect(t.terminal.open).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
   });
-  it("no terminal button for an employee, or without an opener", async () => {
+  it("idle session: opens straight away", async () => {
+    const t = await setup("idle");
+    t.btn.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.terminal.confirm).not.toHaveBeenCalled();
+    expect(t.terminal.open).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
+  });
+  it("button is disabled while a terminal is open", async () => {
+    const t = await setup("idle", true);
+    expect(t.btn.disabled).toBe(true);
+    expect(t.btn.textContent).toBe("Terminal đang mở");
+  });
+  it("no terminal button for an employee, or without a terminal", async () => {
     const root = document.createElement("div");
-    const p = new Panel(root, vi.fn().mockResolvedValue(employee()), vi.fn());
+    const p = new Panel(root, vi.fn().mockResolvedValue(employee()), { isOpen: () => false, open: vi.fn(), confirm: vi.fn() });
     await p.open("employee", "e1");
     expect(root.querySelector("button.desktop")).toBeNull();
     expect(renderSession(session(), NOW, () => {}).querySelector("button.desktop")).toBeNull();
+    const r2 = document.createElement("div");
+    await new Panel(r2, vi.fn().mockResolvedValue(session({ id: "s1" }))).open("session", "s1");
+    expect(r2.querySelector("button.desktop")).toBeNull();
   });
 
   it("Panel shows ended banner on gone and keeps content", async () => {

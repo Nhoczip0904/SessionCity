@@ -79,17 +79,20 @@ function tokenTable(t: { byModel: Record<string, TokenCounts> } & TokenCounts): 
   return table;
 }
 
-export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id: string) => void, onDesktop?: () => void): HTMLElement {
+const BUSY_CONFIRM = "Phiên này có thể đang mở ở chỗ khác (app desktop hoặc terminal). Mở thêm sẽ có hai nơi cùng ghi vào một cuộc trò chuyện.";
+
+export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id: string) => void, onTerminal?: () => void, termOpen?: boolean): HTMLElement {
   const root = el("div", undefined, "detail");
   const head = el("div", undefined, "d-head");
   head.append(el("h2", d.project));
   const meta = el("div", undefined, "meta");
   meta.append(badge(d.status), ` ${[d.branch, d.model].filter(Boolean).join(" · ")} · ${ago(now - Date.parse(d.lastActivity))}`);
   head.append(meta);
-  if (onDesktop) {
-    const b = el("button", "Mở phiên trong terminal", "desktop");
+  if (onTerminal) {
+    const b = el("button", termOpen ? "Terminal đang mở" : "Mở phiên trong terminal", "desktop");
     b.type = "button";
-    b.onclick = onDesktop;
+    b.disabled = !!termOpen;
+    b.onclick = onTerminal;
     head.append(b);
   }
   root.append(head);
@@ -147,22 +150,19 @@ export class Panel {
   private lastFetch = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private banner = el("div", undefined, "banner");
-  private note = el("div", undefined, "note desk-note"); // outside the body, so it survives redraws
   private body = el("div", undefined, "panel-body");
 
   constructor(
     private root: HTMLElement,
     private fetchDetail: (kind: Kind, id: string) => Promise<Detail | "gone">,
-    /** Reopens a session in a terminal (claude --resume); null when it worked, else the error to show. */
-    private openDesktop?: (id: string) => Promise<string | null>,
+    private terminal?: { isOpen(): boolean; open(d: SessionDetail): void; confirm(text: string): Promise<boolean> },
   ) {
     const close = el("button", "✕", "close");
     close.type = "button";
     close.setAttribute("aria-label", "Đóng");
     close.onclick = () => this.close();
     this.banner.hidden = true;
-    this.note.hidden = true;
-    root.replaceChildren(close, this.banner, this.note, this.body);
+    root.replaceChildren(close, this.banner, this.body);
     root.hidden = true;
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape" || root.hidden) return;
@@ -176,7 +176,6 @@ export class Panel {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this.banner.hidden = true;
-    this.note.hidden = true;
     this.body.replaceChildren();
     this.root.hidden = false;
     await this.refresh();
@@ -201,12 +200,9 @@ export class Panel {
     }, Math.max(0, this.lastFetch + REFETCH_MS - Date.now()));
   }
 
-  private async desktop(id: string) {
-    this.note.textContent = "Đang mở…";
-    this.note.hidden = false;
-    const err = await this.openDesktop!(id);
-    if (this.cur?.id !== id) return;
-    this.note.textContent = err ?? "Đã mở terminal";
+  private async openTerminal(d: SessionDetail) {
+    if (d.status !== "idle" && !(await this.terminal!.confirm(BUSY_CONFIRM))) return;
+    this.terminal!.open(d);
   }
 
   private async refresh() {
@@ -232,7 +228,7 @@ export class Panel {
     const now = Date.now();
     this.body.replaceChildren(
       c.kind === "session"
-        ? renderSession(res as SessionDetail, now, (id) => void this.open("employee", id), this.openDesktop && (() => void this.desktop(c.id)))
+        ? renderSession(res as SessionDetail, now, (id) => void this.open("employee", id), this.terminal && (() => void this.openTerminal(res as SessionDetail)), this.terminal?.isOpen())
         : renderEmployee(res as EmployeeDetail, now, () => void this.open("session", (res as EmployeeDetail).sessionId)),
     );
     const det = this.body.querySelector("details");

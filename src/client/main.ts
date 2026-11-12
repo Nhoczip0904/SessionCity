@@ -4,13 +4,14 @@ import { Actors } from "./actors.js";
 import { flyRock } from "./rock.js";
 import { TILE, buildCity } from "./city.js";
 import { createHud } from "./hud.js";
-import { renderLaunchDialog, showDialog, showRules, type ExploreState, type LaunchOpts } from "./launcher.js";
+import { confirmDialog, renderLaunchDialog, showDialog, showRules, type ExploreState, type LaunchOpts } from "./launcher.js";
 import { connect } from "./net.js";
 import { ROOM_COLS, ROOM_ROWS, DEFAULT_THEME, OFFICE_THEME, ROOM_THEMES, deskSpots, fileRows, officeLayout, roomOccupants, tokenRows, type Furniture, type RoomTheme } from "./rooms.js";
 import { drawRoom, type Seat } from "./roomDraw.js";
 import { Scene, type Place } from "./scene.js";
 import { renderFilesDialog, renderShelfDialog, renderTokenDialog } from "./shelfDialog.js";
 import { flyPaper, handoffs } from "./handoff.js";
+import { isTerminalOpen, openTerminal } from "./term.js";
 import { Panel, type Detail, type Kind } from "./panel.js";
 import { loadSheets } from "./tiles.js";
 import { Tooltip, plotAt, presentAt, renderDistrictCard } from "./tooltip.js";
@@ -115,8 +116,11 @@ async function main() {
     return { state: data?.state as ExploreState };
   };
   const panelRoot = document.getElementById("panel")!;
-  const panel = new Panel(panelRoot, fetchDetail, (id) =>
-    send("POST", `/api/session/${encodeURIComponent(id)}/resume`, {}).then((r) => (typeof r === "string" ? r : null)));
+  const panel = new Panel(panelRoot, fetchDetail, {
+    isOpen: isTerminalOpen,
+    open: (d) => openTerminal({ sessionId: d.id, title: d.project, token, onClose: () => void panel.open("session", d.id) }),
+    confirm: (t) => confirmDialog(t, "Vẫn mở", "Huỷ"),
+  });
   const onPick = (kind: Kind, id: string) => {
     tip.hide();
     void panel.open(kind, id);
