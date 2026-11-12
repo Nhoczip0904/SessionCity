@@ -12,7 +12,7 @@ export type Furniture = "safe" | "cabinet" | "phone" | "map" | "shelf";
 export interface Prop { tiles: number[]; w: number; x: number; y: number; name?: string; action?: Furniture; leds?: boolean; /** tiles from the city sheet */ city?: boolean }
 export type FloorKind = "wood" | "tile" | "concrete";
 /** Procedural, partly animated set piece that makes a department recognisable. */
-export type Layout = "office" | "hall" | "lounge";
+export type Layout = "office" | "hall" | "lounge" | "site";
 export type Spot = Pt & { big?: boolean; /** sits below its desk, facing up */ back?: boolean };
 export type Decor = "shelves" | "pinboard" | "worksite" | "racks" | "flasks" | "diff" | "conveyor" | "carousel" | "radar" | "fireplace" | "stage";
 export interface RoomTheme {
@@ -23,7 +23,7 @@ export interface RoomTheme {
   decor?: Decor;
   /** colour light over the whole room: [colour, alpha] */ tint?: [number, number];
   /** workstation look: 2 desk tiles (left, right), whether it carries a screen */ desk?: { tiles: number[]; monitor: boolean };
-  /** "hall": one big desk, everyone else waits on chairs; "lounge": armchairs, no desks */ layout?: Layout;
+  /** "hall": one big desk, everyone else waits on chairs; "lounge": armchairs, no desks; "site": builders behind walls going up */ layout?: Layout;
   props: Prop[];
 }
 
@@ -45,9 +45,8 @@ export const ROOM_THEMES: Partial<Record<District, RoomTheme>> = {
   // studio: cork pinboard full of sticky notes, blueprint table
   design: { floor: 0xc49a68, wall: 0xa9d2f0, kind: "wood", windows: [14], decor: "pinboard", rugs: [[5.5, 2.6, 5, 3, 0x2f5f9f]], props: [
     row(K.IN_CHART, 4), row(K.IN_BENCH, 10), one(K.IN_PLANT, 15), block(K.IN_OVAL_TABLE, 2, 7, 3), ...corners] },
-  // building site: hazard tape, cones, crates, ladders, bare workbenches
-  site: { floor: 0x9a8f80, wall: 0xe0b060, kind: "concrete", windows: [14], decor: "worksite",
-    desk: { tiles: [K.IN_COUNTER[0], K.IN_COUNTER[2]], monitor: true }, props: [
+  // building site: hazard tape, cones, crates, ladders; every builder lays bricks on a wall of their own
+  site: { floor: 0x9a8f80, wall: 0xe0b060, kind: "concrete", windows: [14], decor: "worksite", layout: "site", props: [
     tall(K.IN_LADDER, 0), tall(K.IN_LADDER, 1), city(K.CRATE, 6, 3), city(K.CRATE, 7, 3), city(K.BARREL, 9, 3), city(K.CONE, 5, 4), city(K.CONE, 10, 4),
     city(K.BARRIER, 3, 2), city(K.BARRIER, 12, 2)] },
   // server hall: rack rows with blinking lights, raised floor, cold light
@@ -125,6 +124,8 @@ export function deskSpots(n: number, layout: Layout = "office"): Spot[] {
   if (layout === "hall") {
     out.push({ x: 7, y: 3, big: true }); // the one desk, 3 wide on the stage
     for (const y of [5, 7, 9]) for (const x of [2, 5, 10, 13]) if (out.length < MAX_DESKS) out.push({ x, y }); // a chair, no desk
+  } else if (layout === "site") {
+    for (const y of [6, 9]) for (const x of [1, 3, 5, 9, 11, 13]) out.push({ x, y }); // standing on row y, wall on row y+1
   } else if (layout === "lounge") {
     for (const y of [5, 10]) for (const x of [1, 3, 5, 10, 12, 14]) out.push({ x, y }); // an armchair, rows y-1..y; coffee table between the rows
   } else {

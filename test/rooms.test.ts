@@ -49,6 +49,13 @@ describe("deskSpots", () => {
     expect(new Set(s.map((p) => `${p.x},${p.y}`)).size).toBe(12);
     for (const p of s) expect(p.x >= 7 && p.x <= 8).toBe(false); // the aisle to the door stays free
   });
+  it("site: 12 builders in two rows, each behind a 2-wide wall, aisle to the door free", () => {
+    const s = deskSpots(12, "site");
+    expect(s).toHaveLength(12);
+    expect(s.some((p) => p.big || p.back)).toBe(false);
+    expect([...new Set(s.map((p) => p.y))]).toEqual([6, 9]);
+    for (const p of s) expect(p.x + 1 >= 7 && p.x <= 8).toBe(false);
+  });
   it("hall: one big desk, the rest are chairs", () => {
     const s = deskSpots(12, "hall");
     expect(s.filter((p) => p.big)).toEqual([{ x: 7, y: 3, big: true }]);
