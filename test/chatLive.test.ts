@@ -147,3 +147,41 @@ describe("tool rows", () => {
     expect(rows[1].querySelector(".term")!.textContent).toBe("$ ls");
   });
 });
+
+describe("sync from the transcript", () => {
+  const sync = (items: object[]) => ({ t: "history", items, sync: true });
+
+  it("replaces what is shown with the transcript, with no old-messages divider", () => {
+    const { frame } = setup();
+    frame({ t: "history", items: [{ role: "user", text: "one" }] });
+    frame(sync([{ role: "user", text: "one" }, { role: "claude", text: "typed in another window" }]));
+    expect(document.querySelectorAll(".msg").length).toBe(2);
+    expect($(".chat-log").textContent).toContain("typed in another window");
+    expect($(".chat-log").textContent).not.toContain("tin cũ");
+  });
+
+  it("waits for the running turn to finish before redrawing", () => {
+    const { frame, ev } = setup();
+    say("mine");
+    ev(delta("partial"));
+    frame(sync([{ role: "user", text: "mine" }, { role: "claude", text: "final" }]));
+    expect($(".chat-log").textContent).toContain("partial");
+    ev(result());
+    expect($(".chat-log").textContent).toContain("final");
+    expect($(".chat-log").textContent).not.toContain("partial");
+    expect(document.querySelector(".think")).toBeNull();
+  });
+
+  it("shows a tool's diff from the transcript's input", () => {
+    const { frame } = setup();
+    frame(sync([{ role: "tool", name: "Edit", summary: "a.ts", input: { file_path: "a.ts", old_string: "x", new_string: "y" } }]));
+    expect($(".tool .add").textContent).toBe("+ y");
+  });
+
+  it("recalls the synced messages with the arrow key", () => {
+    const { frame } = setup();
+    frame(sync([{ role: "user", text: "said elsewhere" }]));
+    key("ArrowUp");
+    expect(input().value).toBe("said elsewhere");
+  });
+});

@@ -64,7 +64,7 @@ describe("/pty websocket", () => {
         isOpen: (s) => busy.has(s),
         drop: () => {},
       },
-      chat: { open: () => null, killAll: () => {}, history: async () => [], isOpen: (s) => chatBusy.has(s), drop: (s) => void chatDrops.push(s) },
+      chat: { open: () => null, killAll: () => {}, history: async () => [], isOpen: (s) => chatBusy.has(s), drop: (s) => void chatDrops.push(s), watch: () => () => {} },
     });
     p = Number(new URL(sv.url).port);
   });

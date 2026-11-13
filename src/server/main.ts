@@ -8,6 +8,7 @@ import { startServer } from "./http.js";
 import { prCache, run } from "./prs.js";
 import { PtyHub } from "./pty.js";
 import { ChatHub } from "./chat.js";
+import { follow } from "./follow.js";
 import { history } from "./history.js";
 import { findOnPath, launch, type LaunchOpts } from "./launch.js";
 import { Store } from "./store.js";
@@ -44,6 +45,10 @@ const chat = {
   killAll: () => chatHub.killAll(),
   isOpen: (sid: string) => chatHub.isOpen(sid),
   drop: (sid: string) => chatHub.drop(sid),
+  watch: (sid: string, cb: () => void) => {
+    const f = watcher.fileOf(sid);
+    return f ? follow(f, cb) : () => {};
+  },
   history: async (sid: string) => {
     const f = watcher.fileOf(sid);
     return f ? history(f) : [];
