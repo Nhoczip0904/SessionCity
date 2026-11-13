@@ -163,10 +163,16 @@ async function main() {
   const panelRoot = document.getElementById("panel")!;
   const panel = new Panel(panelRoot, fetchDetail, {
     isOpen: () => (isChatOpen() ? "chat" : isTerminalOpen() ? "terminal" : null),
-    chat: (d) => openChat({ sessionId: d.id, title: d.project, token, onClose: () => refreshIfShown(d.id) }),
+    chat: (d) => chatWith(d.id, d.project),
     terminal: (d) => openTerminal({ sessionId: d.id, title: d.project, token, onClose: () => refreshIfShown(d.id) }),
     confirm: (t) => confirmDialog(t, "Vẫn mở", "Huỷ"),
   });
+  let latest: Session[] = []; // the sessions as last synced, for the chat's session menu
+  const chatWith = (id: string, title: string) =>
+    openChat({
+      sessionId: id, title, token, onClose: () => refreshIfShown(id),
+      menu: { sessions: () => latest, avatarOf: (sid) => avatarOf(sid), pick: (sid) => void (latest.find((x) => x.id === sid) && chatWith(sid, latest.find((x) => x.id === sid)!.project)) },
+    });
   const refreshIfShown = (id: string) => {
     if (panel.shows("session", id)) void panel.open("session", id);
   };
@@ -348,6 +354,7 @@ async function main() {
     const state = { sessions: [...sessions.values()], employees: [...employees.values()] };
     actors.sync(state);
     hud.setCounts(state.sessions);
+    latest = state.sessions;
     agentList.render(state.sessions, state.employees);
     hud.setHint(state.sessions.length ? null : NO_SESSIONS);
     scene.redraw();
