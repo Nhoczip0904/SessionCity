@@ -30,8 +30,14 @@ describe("history", () => {
     expect(await history(f)).toEqual([
       { role: "user", text: "hello" },
       { role: "claude", text: "hi there" },
-      { role: "tool", name: "Bash", summary: summarize("Bash", { command: "ls" }) },
+      { role: "tool", name: "Bash", summary: summarize("Bash", { command: "ls" }), input: { command: "ls" } },
     ]);
+  });
+
+  it("drops a tool input too big to ship", async () => {
+    const f = await file(asst([{ type: "tool_use", id: "t1", name: "Write", input: { file_path: "a", content: "x".repeat(30000) } }]));
+    const [item] = await history(f);
+    expect(item).toEqual({ role: "tool", name: "Write", summary: summarize("Write", { file_path: "a", content: "x".repeat(30000) }) });
   });
 
   it("skips tool_result-only users, isMeta and command tags", async () => {

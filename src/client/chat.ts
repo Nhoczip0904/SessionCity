@@ -90,6 +90,7 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   const send = (m: object) => ws.send(JSON.stringify(m));
 
   let answering = false;
+  let later: any[] | null = null; // a sync that arrived during our own turn
   const sent: string[] = []; // what was said, oldest first, for the arrow keys
   let hi = 0; // index into sent while browsing it; sent.length when not
   let stopped = false;
@@ -226,11 +227,37 @@ export function openChat(opts: { sessionId: string; title: string; token: string
           if (parts.length) note(parts.join(" \u00b7 "), "foot");
         }
         stopped = false;
+        if (later) resync(later);
         return;
       }
     }
   };
 
+  const showHistory = (items: any[]) => {
+    for (const h of items) {
+      if (h.role === "user") {
+        userMsg(String(h.text));
+        sent.push(String(h.text));
+        hi = sent.length;
+      } else if (h.role === "claude") {
+        const b = bubble("");
+        b.done = String(h.text);
+        render(b);
+      } else if (h.role === "tool") toolRow(String(h.name), String(h.summary), h.input && typeof h.input === "object" ? h.input : undefined);
+    }
+  };
+  /** The transcript changed elsewhere (another window on this session): show it as it now stands. */
+  const resync = (items: any[]) => {
+    later = null;
+    stick(() => {
+      log.replaceChildren();
+      cur = null;
+      tools.clear();
+      sent.length = 0;
+      showHistory(items);
+      hi = sent.length;
+    });
+  };
   ws.onmessage = (m) => {
     let f: any;
     try {
@@ -239,19 +266,11 @@ export function openChat(opts: { sessionId: string; title: string; token: string
       return;
     }
     if (f?.t === "history" && Array.isArray(f.items)) {
-      for (const h of f.items) {
-        if (h.role === "user") {
-          userMsg(String(h.text));
-          sent.push(String(h.text));
-          hi = sent.length;
-        }
-        else if (h.role === "claude") {
-          const b = bubble("");
-          b.done = String(h.text);
-          render(b);
-        } else if (h.role === "tool") toolRow(String(h.name), String(h.summary));
-      }
-      if (f.items.length) note("— tin cũ —", "divider");
+      if (!f.sync) {
+        showHistory(f.items);
+        if (f.items.length) note("— tin cũ —", "divider");
+      } else if (answering) later = f.items; // redrawing mid-turn would cut the reply being written
+      else resync(f.items);
     } else if (f?.t === "ev") onEv(f.e);
   };
   ws.onclose = (e) => {

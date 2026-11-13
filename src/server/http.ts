@@ -62,7 +62,7 @@ export async function startServer(opts: {
   claudeDir: string;
   launcher: (opts: LaunchOpts) => Promise<void>;
   pty?: { open(sessionId: string, cwd: string, cols: number, rows: number): Term | null; killAll(): void; isOpen(sessionId: string): boolean; drop(sessionId: string): void };
-  chat?: { open(sessionId: string, cwd: string): Chat | null; killAll(): void; isOpen(sessionId: string): boolean; drop(sessionId: string): void; history(sessionId: string): Promise<HistoryItem[]> };
+  chat?: { open(sessionId: string, cwd: string): Chat | null; killAll(): void; isOpen(sessionId: string): boolean; drop(sessionId: string): void; watch(sessionId: string, cb: () => void): () => void; history(sessionId: string): Promise<HistoryItem[]> };
   /** open PRs of the sessions' repos; `fresh` skips its cache */
   prs?: (fresh: boolean) => Promise<RepoPrs[]>;
 }): Promise<{ url: string; close(): Promise<void> }> {
@@ -276,7 +276,12 @@ export async function startServer(opts: {
         };
         chat.onEvent((e) => run(() => out({ t: "ev", e })));
         chat.onExit((code, err) => run(() => ws.close(4000, reason(code, err))));
-        ws.on("close", () => chat.release()); // the process stays parked for the next open
+        // the transcript also grows from other windows on this session: send it again when it changes
+        const unwatch = hub.watch(sid, () => void hub.history(sid).catch((): HistoryItem[] => []).then((items) => run(() => out({ t: "history", items, sync: true }))));
+        ws.on("close", () => {
+          unwatch();
+          chat.release(); // the process stays parked for the next open
+        });
         void hub.history(sid).catch((): HistoryItem[] => []).then((items) => {
           out({ t: "history", items });
           const q = queue!;

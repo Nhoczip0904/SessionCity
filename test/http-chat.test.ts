@@ -47,6 +47,8 @@ describe("/chat websocket", () => {
   const busy = new Set<string>();
   const ptyBusy = new Set<string>();
   const ptyDrops: string[] = [];
+  const watches: { sid: string; fire: () => void; stopped: boolean }[] = [];
+  let items: object[] = [{ role: "user", text: "hello" }];
   beforeAll(async () => {
     d = await mkdtemp(join(tmpdir(), "http-chat-"));
     const st = new Store();
@@ -66,9 +68,14 @@ describe("/chat websocket", () => {
         killAll: () => void killAlls++,
         isOpen: (s) => busy.has(s),
         drop: () => {},
+        watch: (sid, cb) => {
+          const w = { sid, fire: cb, stopped: false };
+          watches.push(w);
+          return () => void (w.stopped = true);
+        },
         history: async () => {
           await slow;
-          return [{ role: "user", text: "hello" }];
+          return items as never;
         },
       },
       pty: { open: () => null, killAll: () => {}, isOpen: (s) => ptyBusy.has(s), drop: (s) => void ptyDrops.push(s) },
@@ -174,7 +181,7 @@ describe("/chat websocket", () => {
     const before = killAlls;
     const s2 = await startServer({
       port: 0, token: TOKEN, store: new Store(), clientDir: d, claude: null, agentsDir: d, claudeDir: d,
-      launcher: async () => {}, chat: { open: () => null, killAll: () => void killAlls++, isOpen: () => false, drop: () => {}, history: async () => [] },
+      launcher: async () => {}, chat: { open: () => null, killAll: () => void killAlls++, isOpen: () => false, drop: () => {}, watch: () => () => {}, history: async () => [] },
     });
     await s2.close();
     expect(killAlls).toBe(before + 1);
@@ -185,6 +192,20 @@ describe("/chat websocket", () => {
     const { ws } = await connect(`session=${SID}`);
     expect(ptyDrops).toEqual([SID]);
     ws.close();
+  });
+
+  it("sends the history again, marked as a sync, when the transcript changes; stops watching on close", async () => {
+    watches.length = 0;
+    const { ws, frames } = await connect(`session=${SID}`);
+    await until(() => frames.some((f) => f.t === "history"));
+    expect(watches.map((w) => w.sid)).toEqual([SID]);
+    items = [{ role: "user", text: "hello" }, { role: "claude", text: "from elsewhere" }];
+    watches[0].fire();
+    await until(() => frames.some((f) => f.t === "history" && f.sync === true));
+    expect(frames.find((f) => f.sync === true).items.at(-1).text).toBe("from elsewhere");
+    ws.close();
+    await until(() => watches[0].stopped);
+    items = [{ role: "user", text: "hello" }];
   });
 
   it("accepts an uppercase session id", async () => {
