@@ -79,7 +79,7 @@ function tokenTable(t: { byModel: Record<string, TokenCounts> } & TokenCounts): 
   return table;
 }
 
-const BUSY_CONFIRM = "Phiên này có thể đang mở ở chỗ khác (app desktop hoặc terminal). Mở thêm sẽ có hai nơi cùng ghi vào một cuộc trò chuyện.";
+export const BUSY_CONFIRM = "Phiên này có thể đang mở ở chỗ khác (app desktop hoặc terminal). Mở thêm sẽ có hai nơi cùng ghi vào một cuộc trò chuyện.";
 
 export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id: string) => void, open?: { chat(): void; terminal(): void }, openKind?: "chat" | "terminal" | null): HTMLElement {
   const root = el("div", undefined, "detail");

@@ -9,6 +9,8 @@ import { prCache, run } from "./prs.js";
 import { PtyHub } from "./pty.js";
 import { ChatHub } from "./chat.js";
 import { follow } from "./follow.js";
+import { buildingCache } from "./buildings.js";
+import { readOps } from "./activity.js";
 import { history } from "./history.js";
 import { findOnPath, launch, type LaunchOpts } from "./launch.js";
 import { Store } from "./store.js";
@@ -54,7 +56,20 @@ const chat = {
     return f ? history(f) : [];
   },
 };
-const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), launcher, pty: hub, chat, prs: prCache(() => store.snapshot().sessions.map((x) => x.cwd), run) });
+const building = buildingCache({
+  sessions: () => store.snapshot().sessions,
+  ops: async (sid) => {
+    const f = watcher.fileOf(sid);
+    return f ? readOps(f) : [];
+  },
+  said: async (sid) => {
+    const f = watcher.fileOf(sid);
+    const last = f ? (await history(f, 8)).filter((h) => h.role === "claude").at(-1) : undefined;
+    return last && "text" in last ? last.text.slice(0, 600) : "";
+  },
+  exec: run,
+});
+const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), launcher, pty: hub, chat, building, prs: prCache(() => store.snapshot().sessions.map((x) => x.cwd), run) });
 await watcher.start();
 console.log(server.url);
 if (!claude) console.error("Chưa tìm thấy claude.exe — nút Mở phiên sẽ báo lỗi (cài: winget install Anthropic.ClaudeCode)");

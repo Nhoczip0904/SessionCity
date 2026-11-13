@@ -38,17 +38,35 @@ describe("room taps without a preceding hover (Pixi hit testing)", () => {
 });
 
 describe("the review room's diff screen", () => {
-  it("is the PR board: tapping it opens the board; other rooms' wall panels do nothing", () => {
+  it("is the PR board: tapping it opens the board", () => {
     const onFurniture = vi.fn();
     const root = new Container();
     root.addChild(drawRoom({ indoor: () => Texture.WHITE } as never, ROOM_THEMES.review!, [], ["a"], null, onFurniture));
     tap(new EventBoundary(root), 20, 15); // middle of the left wall panel
     expect(onFurniture).toHaveBeenLastCalledWith("prs");
-    const other = vi.fn();
-    const r2 = new Container();
-    r2.addChild(drawRoom({ indoor: () => Texture.WHITE } as never, ROOM_THEMES.lab!, [], ["a"], null, other));
-    tap(new EventBoundary(r2), 20, 15);
-    expect(other).not.toHaveBeenCalled();
+  });
+});
+
+describe("every other department has a board to tap", () => {
+  const spots: [keyof typeof ROOM_THEMES, number, number][] = [
+    ["library", 72, 48], ["design", 20, 15], ["site", 20, 15], ["database", 96, 72], ["lab", 20, 15],
+    ["factory", 16, 56], ["airport", 20, 15], ["watchtower", 20, 15], ["home", 20, 15], ["townhall", 120, 46],
+  ];
+  it.each(spots)("%s opens its department board", (district, x, y) => {
+    const onFurniture = vi.fn();
+    const root = new Container();
+    root.addChild(drawRoom({ indoor: () => Texture.WHITE, city: () => Texture.WHITE } as never, ROOM_THEMES[district]!, [], ["a"], null, onFurniture));
+    tap(new EventBoundary(root), x, y);
+    expect(onFurniture).toHaveBeenLastCalledWith("building");
+  });
+
+  it("the office has none; a seat still wins over the board behind it", () => {
+    const onFurniture = vi.fn(), onPick = vi.fn();
+    const root = new Container();
+    root.addChild(drawRoom({ indoor: () => Texture.WHITE } as never, ROOM_THEMES.townhall!, [{ at: { x: 7, y: 3 }, big: true, fig: null, label: "x", badge: "", done: false, onPick }], ["a"], null, onFurniture));
+    tap(new EventBoundary(root), 8 * 16 + 8, 3 * 16 + 8);
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onFurniture).not.toHaveBeenCalled();
   });
 });
 

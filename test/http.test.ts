@@ -395,6 +395,28 @@ describe("PR board route", () => {
     }
   });
 
+  it("a department board: needs the token, knows only the departments, and ?fresh=1 skips the cache", async () => {
+    const calls: [string, boolean][] = [];
+    const s = await startServer({ port: 0, token: TOKEN, store, clientDir: join(dir, "client"), claude: null, agentsDir: join(dir, "agents"), claudeDir: join(dir, "claude"), launcher: async () => {},
+      building: async (id, fresh) => (calls.push([id, fresh]), { id: "library", books: [] }) });
+    const base = s.url.replace(/\/\?.*$/, "").replace(/\/$/, "");
+    try {
+      expect((await fetch(`${base}/api/building/library`)).status).toBe(401);
+      expect((await fetch(`${base}/api/building/review?token=${TOKEN}`)).status).toBe(404);
+      expect((await fetch(`${base}/api/building/..%2Fx?token=${TOKEN}`)).status).toBe(404);
+      const r = await fetch(`${base}/api/building/library?token=${TOKEN}`);
+      expect(await r.json()).toEqual({ id: "library", books: [] });
+      await fetch(`${base}/api/building/lab?token=${TOKEN}&fresh=1`);
+      expect(calls).toEqual([["library", false], ["lab", true]]);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it("without a department source the board is a 404", async () => {
+    expect((await get(`/api/building/library?token=${TOKEN}`)).status).toBe(404);
+  });
+
   it("without a PR source the board is empty", async () => {
     expect(JSON.parse((await get(`/api/prs?token=${TOKEN}`)).body)).toEqual([]);
   });

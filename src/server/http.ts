@@ -13,10 +13,11 @@ import { listShelf, readShelfItem } from "./shelf.js";
 import type { Term } from "./pty.js";
 import type { Chat } from "./chat.js";
 import type { HistoryItem } from "./history.js";
-import type { RepoPrs } from "../shared/types.js";
+import type { BuildingData, BuildingId, RepoPrs } from "../shared/types.js";
 import { exploreState, setExplore, UserOwnedError } from "./agents.js";
 
 const MAX_BODY = 16_384;
+const BUILDINGS = new Set<string>(["townhall", "home", "site", "lab", "factory", "airport", "watchtower", "library", "design", "database"]);
 const SESSION_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 export const clampSize = (v: string | null, def: number, min: number, max: number): number => {
@@ -65,6 +66,7 @@ export async function startServer(opts: {
   chat?: { open(sessionId: string, cwd: string): Chat | null; killAll(): void; isOpen(sessionId: string): boolean; drop(sessionId: string): void; watch(sessionId: string, cb: () => void): () => void; history(sessionId: string): Promise<HistoryItem[]> };
   /** open PRs of the sessions' repos; `fresh` skips its cache */
   prs?: (fresh: boolean) => Promise<RepoPrs[]>;
+  building?: (id: BuildingId, fresh: boolean) => Promise<BuildingData>;
 }): Promise<{ url: string; close(): Promise<void> }> {
   const { token, store } = opts;
   const clientRoot = resolve(opts.clientDir);
@@ -206,6 +208,11 @@ export async function startServer(opts: {
       if (url.pathname === "/api/prs") {
         const p = opts.prs ? opts.prs(url.searchParams.get("fresh") === "1") : Promise.resolve([]);
         return void p.then((list) => json(res, 200, list), () => json(res, 500, { error: "internal error" }));
+      }
+      const bd = /^\/api\/building\/([a-z]+)$/.exec(url.pathname);
+      if (bd) {
+        if (!BUILDINGS.has(bd[1]!) || !opts.building) return json(res, 404, { error: "not found" });
+        return void opts.building(bd[1] as BuildingId, url.searchParams.get("fresh") === "1").then((data) => json(res, 200, data), () => json(res, 500, { error: "internal error" }));
       }
       if (url.pathname === "/api/state") return send(res, 200, JSON.stringify(store.snapshot()), TYPES[".json"]);
       const sh = /^\/api\/session\/([^/]+)\/shelf(?:\/([^/]+))?$/.exec(url.pathname);
