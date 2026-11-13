@@ -61,8 +61,8 @@ export async function startServer(opts: {
   agentsDir: string;
   claudeDir: string;
   launcher: (opts: LaunchOpts) => Promise<void>;
-  pty?: { open(sessionId: string, cwd: string, cols: number, rows: number): Term | null; killAll(): void; isOpen(sessionId: string): boolean };
-  chat?: { open(sessionId: string, cwd: string): Chat | null; killAll(): void; isOpen(sessionId: string): boolean; history(sessionId: string): Promise<HistoryItem[]> };
+  pty?: { open(sessionId: string, cwd: string, cols: number, rows: number): Term | null; killAll(): void; isOpen(sessionId: string): boolean; drop(sessionId: string): void };
+  chat?: { open(sessionId: string, cwd: string): Chat | null; killAll(): void; isOpen(sessionId: string): boolean; drop(sessionId: string): void; history(sessionId: string): Promise<HistoryItem[]> };
   /** open PRs of the sessions' repos; `fresh` skips its cache */
   prs?: (fresh: boolean) => Promise<RepoPrs[]>;
 }): Promise<{ url: string; close(): Promise<void> }> {
@@ -256,6 +256,7 @@ export async function startServer(opts: {
       const hub = opts.chat;
       if (!s || !hub) return reject(404, "Not Found");
       if (hub.isOpen(sid) || opts.pty?.isOpen(sid)) return reject(409, "Conflict"); // a second claude on one session forks the transcript
+      opts.pty?.drop(sid); // a parked terminal of this session would be a second claude too
       let chat;
       try {
         chat = hub.open(sid, s.cwd && isDir(s.cwd) ? s.cwd : homedir());
@@ -275,7 +276,7 @@ export async function startServer(opts: {
         };
         chat.onEvent((e) => run(() => out({ t: "ev", e })));
         chat.onExit((code, err) => run(() => ws.close(4000, reason(code, err))));
-        ws.on("close", () => chat.kill());
+        ws.on("close", () => chat.release()); // the process stays parked for the next open
         void hub.history(sid).catch((): HistoryItem[] => []).then((items) => {
           out({ t: "history", items });
           const q = queue!;
@@ -306,6 +307,7 @@ export async function startServer(opts: {
       const s = SESSION_ID.test(sid) ? store.detailSession(sid) : undefined; // the id goes on a command line
       if (!s || !opts.pty) return reject(404, "Not Found");
       if (opts.pty.isOpen(sid) || opts.chat?.isOpen(sid)) return reject(409, "Conflict");
+      opts.chat?.drop(sid);
       let term;
       try {
         term = opts.pty.open(
@@ -326,7 +328,7 @@ export async function startServer(opts: {
           if (ws.readyState === WebSocket.OPEN) ws.send(d);
         });
         term.onExit((code) => ws.close(4000, String(code)));
-        ws.on("close", () => term.kill());
+        ws.on("close", () => term.release());
         ws.on("message", (raw) => {
           let m: { t?: unknown; d?: unknown; cols?: unknown; rows?: unknown };
           try {

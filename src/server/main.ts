@@ -43,6 +43,7 @@ const chat = {
   open: (sid: string, cwd: string) => chatHub.open(sid, cwd),
   killAll: () => chatHub.killAll(),
   isOpen: (sid: string) => chatHub.isOpen(sid),
+  drop: (sid: string) => chatHub.drop(sid),
   history: async (sid: string) => {
     const f = watcher.fileOf(sid);
     return f ? history(f) : [];

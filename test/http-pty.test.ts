@@ -18,11 +18,13 @@ class FakeTerm implements Term {
   writes: string[] = [];
   sizes: [number, number][] = [];
   kills = 0;
+  releases = 0;
   onData(cb: (d: string) => void) { this.data = cb; }
   onExit(cb: (c: number) => void) { this.exit = cb; }
   write(d: string) { this.writes.push(d); }
   resize(c: number, r: number) { this.sizes.push([c, r]); }
   kill() { this.kills++; }
+  release() { this.releases++; }
 }
 
 const until = async (f: () => boolean) => {
@@ -41,6 +43,7 @@ describe("/pty websocket", () => {
   let killAlls = 0;
   const busy = new Set<string>();
   const chatBusy = new Set<string>();
+  const chatDrops: string[] = [];
   beforeAll(async () => {
     d = await mkdtemp(join(tmpdir(), "http-pty-"));
     const st = new Store();
@@ -59,8 +62,9 @@ describe("/pty websocket", () => {
         },
         killAll: () => void killAlls++,
         isOpen: (s) => busy.has(s),
+        drop: () => {},
       },
-      chat: { open: () => null, killAll: () => {}, history: async () => [], isOpen: (s) => chatBusy.has(s) },
+      chat: { open: () => null, killAll: () => {}, history: async () => [], isOpen: (s) => chatBusy.has(s), drop: (s) => void chatDrops.push(s) },
     });
     p = Number(new URL(sv.url).port);
   });
@@ -120,7 +124,8 @@ describe("/pty websocket", () => {
     t.data("hi");
     expect(await got).toBe("hi");
     ws.close();
-    await until(() => t.kills === 1);
+    await until(() => t.releases === 1);
+    expect(t.kills).toBe(0);
 
     const c = await connect(`session=${SID}`);
     const closed = new Promise<[number, string]>((ok) => c.ws.on("close", (code, r) => ok([code, r.toString()])));
@@ -131,10 +136,17 @@ describe("/pty websocket", () => {
   it("close() kills all terminals", async () => {
     const s2 = await startServer({
       port: 0, token: TOKEN, store: new Store(), clientDir: d, claude: null, agentsDir: d, claudeDir: d,
-      launcher: async () => {}, pty: { open: () => null, killAll: () => void killAlls++, isOpen: () => false },
+      launcher: async () => {}, pty: { open: () => null, killAll: () => void killAlls++, isOpen: () => false, drop: () => {} },
     });
     await s2.close();
     expect(killAlls).toBe(1);
+  });
+
+  it("ends a parked chat of the session before opening the terminal", async () => {
+    chatDrops.length = 0;
+    const { ws } = await connect(`session=${SID}`);
+    expect(chatDrops).toEqual([SID]);
+    ws.close();
   });
 
   it("accepts an uppercase session id", async () => {

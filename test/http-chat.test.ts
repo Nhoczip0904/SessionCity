@@ -18,12 +18,14 @@ class FakeChat implements Chat {
   calls: unknown[][] = [];
   known = new Set<string>(["r1"]);
   kills = 0;
+  releases = 0;
   onEvent(cb: (e: Record<string, unknown>) => void) { this.ev = cb; }
   onExit(cb: (c: number, e: string) => void) { this.exit = (c, e) => cb(c, e ?? ""); }
   say(t: string) { this.calls.push(["say", t]); }
   answer(id: string, a: boolean) { this.calls.push(["answer", id, a]); }
   interrupt() { this.calls.push(["interrupt"]); }
   kill() { this.kills++; }
+  release() { this.releases++; }
   pending(id: string) { return this.known.has(id); }
 }
 
@@ -44,6 +46,7 @@ describe("/chat websocket", () => {
   let slow: Promise<void> | null = null;
   const busy = new Set<string>();
   const ptyBusy = new Set<string>();
+  const ptyDrops: string[] = [];
   beforeAll(async () => {
     d = await mkdtemp(join(tmpdir(), "http-chat-"));
     const st = new Store();
@@ -62,12 +65,13 @@ describe("/chat websocket", () => {
         },
         killAll: () => void killAlls++,
         isOpen: (s) => busy.has(s),
+        drop: () => {},
         history: async () => {
           await slow;
           return [{ role: "user", text: "hello" }];
         },
       },
-      pty: { open: () => null, killAll: () => {}, isOpen: (s) => ptyBusy.has(s) },
+      pty: { open: () => null, killAll: () => {}, isOpen: (s) => ptyBusy.has(s), drop: (s) => void ptyDrops.push(s) },
     });
     p = Number(new URL(sv.url).port);
   });
@@ -154,11 +158,12 @@ describe("/chat websocket", () => {
     ws.close();
   });
 
-  it("close kills the chat; exit closes with 4000 and the code", async () => {
+  it("close releases the chat without killing it; exit closes with 4000 and the code", async () => {
     const a = await connect(`session=${SID}`);
     const t = chat;
     a.ws.close();
-    await until(() => t.kills === 1);
+    await until(() => t.releases === 1);
+    expect(t.kills).toBe(0);
     const b = await connect(`session=${SID}`);
     const closed = new Promise<[number, string]>((ok) => b.ws.on("close", (code, r) => ok([code, r.toString()])));
     chat.exit(3);
@@ -169,10 +174,17 @@ describe("/chat websocket", () => {
     const before = killAlls;
     const s2 = await startServer({
       port: 0, token: TOKEN, store: new Store(), clientDir: d, claude: null, agentsDir: d, claudeDir: d,
-      launcher: async () => {}, chat: { open: () => null, killAll: () => void killAlls++, isOpen: () => false, history: async () => [] },
+      launcher: async () => {}, chat: { open: () => null, killAll: () => void killAlls++, isOpen: () => false, drop: () => {}, history: async () => [] },
     });
     await s2.close();
     expect(killAlls).toBe(before + 1);
+  });
+
+  it("ends a parked terminal of the session before opening the chat", async () => {
+    ptyDrops.length = 0;
+    const { ws } = await connect(`session=${SID}`);
+    expect(ptyDrops).toEqual([SID]);
+    ws.close();
   });
 
   it("accepts an uppercase session id", async () => {

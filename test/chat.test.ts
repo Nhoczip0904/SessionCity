@@ -201,3 +201,120 @@ describe("ChatHub kill", () => {
     expect(hub.size).toBe(0);
   });
 });
+
+describe("ChatHub keeps a released chat alive", () => {
+  afterEach(() => vi.useRealTimers());
+  const ask = (id: string) => JSON.stringify({ type: "control_request", request_id: id, request: { subtype: "can_use_tool", input: { cmd: "ls" } } }) + "\n";
+
+  it("release parks the process: stdin stays open, slot kept, not open", () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c");
+    hub.open("a", "c")!.release();
+    expect(procs[0].stdin.writableEnded).toBe(false);
+    expect(hub.size).toBe(1);
+    expect(hub.isOpen("a")).toBe(false);
+  });
+
+  it("opening the session again reuses the process; events reach only the new chat", async () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c");
+    const first = hub.open("a", "c")!;
+    const old: unknown[] = [];
+    first.onEvent((e) => old.push(e));
+    first.release();
+    const second = hub.open("a", "c")!;
+    const got: unknown[] = [];
+    second.onEvent((e) => got.push(e));
+    procs[0].out.write('{"type":"x"}\n');
+    await tick();
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(hub.isOpen("a")).toBe(true);
+    expect(got).toEqual([{ type: "x" }]);
+    expect(old).toEqual([]);
+  });
+
+  it("a permission request left unanswered is shown again, and answerable", async () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c");
+    const first = hub.open("a", "c")!;
+    first.onEvent(() => {});
+    procs[0].out.write(ask("r1"));
+    await tick();
+    first.release();
+    const second = hub.open("a", "c")!;
+    const got: Record<string, unknown>[] = [];
+    second.onEvent((e) => got.push(e));
+    expect(got.map((e) => e.request_id)).toEqual(["r1"]);
+    expect(second.pending("r1")).toBe(true);
+    second.answer("r1", true);
+    expect(lines(procs[0].written)[0].response.response).toEqual({ behavior: "allow", updatedInput: { cmd: "ls" } });
+  });
+
+  it("an answered request is not shown again", async () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c");
+    const first = hub.open("a", "c")!;
+    first.onEvent(() => {});
+    procs[0].out.write(ask("r1"));
+    await tick();
+    first.answer("r1", false);
+    first.release();
+    const got: unknown[] = [];
+    hub.open("a", "c")!.onEvent((e) => got.push(e));
+    expect(got).toEqual([]);
+  });
+
+  it("a released handle can no longer talk to the process", () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c");
+    const first = hub.open("a", "c")!;
+    first.release();
+    first.say("x");
+    expect(procs[0].written).toEqual([]);
+  });
+
+  it("a parked process is stopped after the park time; reopening cancels it", () => {
+    vi.useFakeTimers();
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c", 3, undefined, 1000);
+    hub.open("a", "c")!.release();
+    hub.open("b", "c")!.release();
+    hub.open("b", "c");
+    vi.advanceTimersByTime(1000);
+    expect(procs[0].stdin.writableEnded).toBe(true);
+    expect(procs[1].stdin.writableEnded).toBe(false);
+    expect(hub.size).toBe(1);
+  });
+
+  it("a full hub evicts the oldest parked process; with none parked it refuses", () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c", 2);
+    hub.open("a", "c")!.release();
+    hub.open("b", "c")!.release();
+    expect(hub.open("c", "c")).not.toBeNull();
+    expect(procs[0].stdin.writableEnded).toBe(true);
+    expect(procs[1].stdin.writableEnded).toBe(false);
+    hub.open("d", "c");
+    expect(hub.open("e", "c")).toBeNull();
+  });
+
+  it("drop stops a parked process of that session, not an attached one", () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c");
+    hub.open("a", "c")!.release();
+    hub.open("b", "c");
+    hub.drop("a");
+    hub.drop("b");
+    expect(procs.map((p) => p.stdin.writableEnded)).toEqual([true, false]);
+  });
+
+  it("a process that exits while parked is gone; the next open spawns afresh", () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c");
+    hub.open("a", "c")!.release();
+    procs[0].exit(0);
+    expect(hub.size).toBe(0);
+    hub.open("a", "c");
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+});
