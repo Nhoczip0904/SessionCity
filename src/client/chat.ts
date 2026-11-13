@@ -1,4 +1,6 @@
 import { Marked } from "marked";
+import type { Session } from "../shared/types.js";
+import { sessionMenu } from "./chatMenu.js";
 import { el } from "./launcher.js";
 import { isTerminalOpen } from "./term.js";
 
@@ -46,7 +48,10 @@ interface Block {
 const mainLine = (input: Record<string, unknown> = {}) =>
   String(input.command ?? input.file_path ?? JSON.stringify(input)).slice(0, MAX_MAIN);
 
-export function openChat(opts: { sessionId: string; title: string; token: string; onClose: () => void }, deps: ChatDeps = defaultDeps): void {
+/** `menu`: lets the person hop to another session from beside the chat. */
+export interface ChatMenu { sessions(): Session[]; avatarOf(id: string): string | null; pick(id: string): void }
+
+export function openChat(opts: { sessionId: string; title: string; token: string; onClose: () => void; menu?: ChatMenu }, deps: ChatDeps = defaultDeps): void {
   if (isTerminalOpen()) return;
   current?.();
   const root = el("div", undefined, "chat-overlay");
@@ -65,12 +70,13 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   form.append(input, btn);
   bar.append(el("span", `Chat — ${opts.title}`), x);
   box.append(bar, log, form);
+  if (opts.menu) root.append(sessionMenu(opts.menu.sessions(), opts.sessionId, opts.menu.avatarOf, opts.menu.pick));
   root.append(box);
   root.addEventListener("keydown", (e) => e.stopPropagation()); // Esc must not close the panel/scene behind
   // keep focus in the input: a click on the bar or backdrop would send it to <body>
   root.addEventListener("mousedown", (e) => {
     const t = e.target as Node;
-    if (t === x || t === input || log.contains(t) || btn.contains(t)) return;
+    if (t === x || t === input || log.contains(t) || btn.contains(t) || (t as Element).closest?.(".chat-side")) return;
     e.preventDefault();
     input.focus();
   });
