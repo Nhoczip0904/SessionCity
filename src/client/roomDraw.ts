@@ -1,6 +1,6 @@
 import { Container, Graphics, Rectangle, Sprite, Text } from "pixi.js";
 import type { Pt } from "./path.js";
-import { LEFT, decorOver, decorUnder, drawJob, type Anim } from "./roomDecor.js";
+import { LEFT, SPOTS, decorOver, decorUnder, drawJob, type Anim } from "./roomDecor.js";
 import { BOARD_W, BOARD_X, MAX_DESKS, ROOM_COLS, ROOM_ROWS, deskSpots, workJob, type Furniture, type RoomTheme } from "./rooms.js";
 import * as K from "./tiles.js";
 import type { Sheets } from "./tiles.js";
@@ -182,6 +182,10 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
   leds(root, ledSpots);
   if (theme.decor) decorOver(theme.decor, anim);
   if (theme.decor === "diff") clickable(root.addChild(new Container()), new Rectangle(LEFT.x, LEFT.y, LEFT.w, LEFT.h), "prs", "Bảng PR");
+  else if (theme.decor && SPOTS[theme.decor]) {
+    const s = SPOTS[theme.decor]!;
+    clickable(root.addChild(new Container()), new Rectangle(s.x, s.y, s.w, s.h), "building", s.name);
+  }
 
   /** Chair, desk and screen; the person (if any) sits between chair and desk. In a hall only the big desk has one. */
   const desk = theme.desk ?? { tiles: K.IN_DESK, monitor: true };

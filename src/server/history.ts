@@ -12,7 +12,7 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
 const cut = (s: string) => s.slice(0, MAX_TEXT);
 
-async function tail(file: string): Promise<string> {
+export async function tail(file: string): Promise<string> {
   const fh = await open(file, "r");
   try {
     const size = (await fh.stat()).size;

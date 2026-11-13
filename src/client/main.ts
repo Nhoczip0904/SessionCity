@@ -1,5 +1,5 @@
 import { Application, Assets, Container, Rectangle, Sprite, Texture, TextureStyle, type Graphics } from "pixi.js";
-import type { Employee, RepoPrs, Session, SessionDetail, Shelf } from "../shared/types.js";
+import type { BuildingData, BuildingId, Employee, RepoPrs, Session, SessionDetail, Shelf } from "../shared/types.js";
 import { Actors } from "./actors.js";
 import { flyRock } from "./rock.js";
 import { TILE, buildCity } from "./city.js";
@@ -13,7 +13,8 @@ import { renderFilesDialog, renderPrDialog, renderShelfDialog, renderTokenDialog
 import { flyPaper, handoffs } from "./handoff.js";
 import { isChatOpen, openChat } from "./chat.js";
 import { isTerminalOpen, openTerminal } from "./term.js";
-import { Panel, type Detail, type Kind } from "./panel.js";
+import { renderBuildingDialog } from "./buildings.js";
+import { BUSY_CONFIRM, Panel, type Detail, type Kind } from "./panel.js";
 import { loadSheets } from "./tiles.js";
 import { Tooltip, plotAt, presentAt, renderDistrictCard } from "./tooltip.js";
 import { Traffic } from "./traffic.js";
@@ -243,6 +244,21 @@ async function main() {
     return (await res.json()) as T;
   };
 
+  /** A department's board: chat opens only after the same warning the session panel gives for a busy session. */
+  const openBuilding = (id: BuildingId) =>
+    showDialog(renderBuildingDialog(id, async (fresh) => {
+      const res = await fetch(`/api/building/${id}?token=${encodeURIComponent(token)}${fresh ? "&fresh=1" : ""}`);
+      if (!res.ok) throw new Error(String(res.status));
+      return (await res.json()) as BuildingData;
+    }, {
+      avatarOf: (sid) => avatarOf(sid),
+      now: () => Date.now(),
+      chat: (sid) => void (async () => {
+        const s = sessions.get(sid);
+        if (!s || (s.status !== "idle" && !(await confirmDialog(BUSY_CONFIRM, "Vẫn mở", "Huỷ")))) return;
+        chatWith(sid, s.project);
+      })(),
+    }));
   let lastDetail: SessionDetail | null = null; // updated on every show, even when the redraw is skipped
   const furniture = (f: Furniture) => {
     if (f === "prs") return showDialog(renderPrDialog(async (fresh) => {
@@ -296,7 +312,8 @@ async function main() {
       seen = { id: place.sessionId, staff: new Map(staff.map((x) => [x.id, x.done])) };
     }
     const seats: Seat[] = v.seats.map((x) => ({ at: x.at, big: x.big, fig: actors.portrait(x.kind, x.id), label: x.label, badge: x.badge, done: x.done, onPick: () => onPick(x.kind, x.id) }));
-    return drawRoom(sheets, v.theme, seats, v.board, v.note, furniture);
+    const onFurniture = (f: Furniture) => (f === "building" && place.kind === "room" && place.district !== "review" ? openBuilding(place.district) : furniture(f));
+    return drawRoom(sheets, v.theme, seats, v.board, v.note, onFurniture);
   };
   // only what the room visibly shows: anything else would rebuild it mid-tap
   const key = (place: Exclude<Place, { kind: "city" }>, detail: SessionDetail | null, error: boolean) => {

@@ -7,7 +7,8 @@ export const ROOM_COLS = 16, ROOM_ROWS = 12, MAX_DESKS = 12;
 /** Wall face rows 0–1 (board on x BOARD_X..BOARD_X+BOARD_W−1), door at x 7–8 on the last row. */
 export const BOARD_X = 3, BOARD_W = 10;
 
-export type Furniture = "safe" | "cabinet" | "phone" | "map" | "shelf" | "prs";
+/** "prs" is the review room's board; "building" is the board of whichever department the room is. */
+export type Furniture = "safe" | "cabinet" | "phone" | "map" | "shelf" | "prs" | "building";
 /** `tiles` laid out `w` wide from (x, y); y < 2 hangs on the wall */
 export interface Prop { tiles: number[]; w: number; x: number; y: number; name?: string; action?: Furniture; leds?: boolean; /** tiles from the city sheet */ city?: boolean }
 export type FloorKind = "wood" | "tile" | "concrete";

@@ -35,11 +35,16 @@ const row = (p: GhPr): PrRow => ({
   ci: ci(p.statusCheckRollup),
 });
 
-/** Open PRs of every git repo the given folders are in, one gh call per repo; never rejects. */
-export async function listPrs(cwds: string[], exec: Run): Promise<RepoPrs[]> {
+/** The git repos the given folders are in, each once; a folder outside any repo is left out. */
+export async function repoRoots(cwds: string[], exec: Run): Promise<string[]> {
   // an unknown cwd ("") would otherwise run git in the server's own folder
   const roots = await Promise.all([...new Set(cwds)].filter(Boolean).map((cwd) => exec("git", ["rev-parse", "--show-toplevel"], cwd).then((s) => s.trim(), () => null)));
-  return Promise.all([...new Set(roots.filter((r): r is string => !!r))].map(async (root): Promise<RepoPrs> => {
+  return [...new Set(roots.filter((r): r is string => !!r))];
+}
+
+/** Open PRs of every git repo the given folders are in, one gh call per repo; never rejects. */
+export async function listPrs(cwds: string[], exec: Run): Promise<RepoPrs[]> {
+  return Promise.all((await repoRoots(cwds, exec)).map(async (root): Promise<RepoPrs> => {
     const repo = basename(root);
     try {
       const list = JSON.parse(await exec("gh", ["pr", "list", "--state", "open", "--limit", "30", "--json", FIELDS], root)) as GhPr[];

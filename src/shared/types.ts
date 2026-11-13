@@ -61,3 +61,28 @@ export interface Shelf { files: ShelfFile[]; skills: ShelfSkill[] }
 export interface PrRow { number: number; title: string; url: string | null; /** GitHub login of who opened it */ author: string | null; draft: boolean; review: "approved" | "changes" | "pending" | null; ci: "pass" | "fail" | "pending" | null }
 /** The open PRs of one repo the sessions work in; `error` when gh could not list them. */
 export interface RepoPrs { repo: string; prs: PrRow[]; error?: string }
+
+// ---- the departments' boards (/api/building/:id) ----
+/** A command a session ran (test, build, deploy...), as the transcript shows how it ended. */
+export interface CmdRun { at: string; project: string; command: string; ok: boolean | null; /** how long it ran */ ms: number | null; /** a short result line, "" when none */ note: string }
+export interface ChangedFile { path: string; status: "M" | "A" | "D" | "?"; add: number; del: number }
+export interface RepoChanges { repo: string; files: ChangedFile[]; error?: string }
+export interface CiRun { name: string; branch: string; at: string; state: "pass" | "fail" | "pending"; url: string | null }
+export interface RepoCi { repo: string; runs: CiRun[]; error?: string }
+export interface Alert { at: string; project: string; tool: string; text: string }
+export interface Book { path: string; reads: number; project: string }
+export interface Doc { repo: string; path: string; title: string; done: number; total: number; at: string }
+export interface RepoMigrations { repo: string; items: { name: string; at: string }[] }
+export interface InboxItem { id: string; project: string; title?: string; said: string; at: string }
+export interface RestItem { id: string; project: string; title?: string; since: string }
+export type BuildingId = "townhall" | "home" | "site" | "lab" | "factory" | "airport" | "watchtower" | "library" | "design" | "database";
+export type BuildingData =
+  | { id: "townhall"; items: InboxItem[] }
+  | { id: "home"; items: RestItem[] }
+  | { id: "site"; repos: RepoChanges[] }
+  | { id: "lab" | "factory"; runs: CmdRun[] }
+  | { id: "airport"; flights: CmdRun[]; ci: RepoCi[] }
+  | { id: "watchtower"; alerts: Alert[] }
+  | { id: "library"; books: Book[] }
+  | { id: "design"; docs: Doc[] }
+  | { id: "database"; repos: RepoMigrations[] };

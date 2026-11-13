@@ -4,6 +4,19 @@ import type { Decor, Job } from "./rooms.js";
 const T = 16;
 /** Left/right wall panels beside the board (board spans x 50–206 on rows 0–1). */
 export const LEFT = { x: 4, y: 5, w: 42, h: 23 }, RIGHT = { x: 210, y: 5, w: 42, h: 23 };
+/** The part of each department's room that opens its board when tapped. */
+export const SPOTS: Partial<Record<Decor, { x: number; y: number; w: number; h: number; name: string }>> = {
+  shelves: { x: 48, y: 32, w: 48, h: 32, name: "Kệ sách" },
+  pinboard: { ...LEFT, name: "Bàn vẽ" },
+  worksite: { ...LEFT, name: "Bản vẽ thi công" },
+  racks: { x: 80, y: 48, w: 32, h: 48, name: "Sổ migration" },
+  flasks: { ...LEFT, name: "Bảng kết quả" },
+  conveyor: { x: 0, y: 32, w: 32, h: 48, name: "Dây chuyền" },
+  carousel: { ...LEFT, name: "Bảng chuyến bay" },
+  radar: { ...LEFT, name: "Radar log" },
+  fireplace: { x: 4, y: 2, w: 42, h: 30, name: "Phòng khách" },
+  stage: { x: 72, y: 32, w: 112, h: 28, name: "Hộp thư" },
+};
 const hash = (n: number) => (((n * 2654435761) >>> 0) % 1000) / 1000;
 
 export type Anim = (draw: (g: Graphics, t: number) => void) => void;
