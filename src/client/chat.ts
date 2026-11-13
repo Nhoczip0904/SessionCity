@@ -1,6 +1,7 @@
 import { Marked } from "marked";
 import type { Session } from "../shared/types.js";
 import { sessionMenu } from "./chatMenu.js";
+import { toolBody } from "./chatTools.js";
 import { el } from "./launcher.js";
 import { isTerminalOpen } from "./term.js";
 
@@ -10,6 +11,7 @@ export interface ChatDeps {
 
 const MAX_RESULT = 5000;
 const MAX_MAIN = 300;
+const MAX_INPUT = 200; // px: the input stops growing here and scrolls
 let current: (() => void) | null = null;
 export const isChatOpen = () => current !== null;
 
@@ -88,6 +90,8 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   const send = (m: object) => ws.send(JSON.stringify(m));
 
   let answering = false;
+  const sent: string[] = []; // what was said, oldest first, for the arrow keys
+  let hi = 0; // index into sent while browsing it; sent.length when not
   let stopped = false;
   let locked = false;
   let cur: Bubble | null = null;
@@ -97,17 +101,26 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   const stick = (fn: () => void) => {
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
     fn();
+    if (answering) log.append(think); // always the last thing in the log
     if (atBottom) log.scrollTop = log.scrollHeight;
   };
   const add = (n: HTMLElement) => stick(() => log.append(n));
   const note = (text: string, cls: string) => add(el("div", text, cls));
+  const think = el("div", undefined, "think");
+  think.append(el("span", undefined, "dots"), el("span", "Claude đang làm…"));
   const setAnswering = (a: boolean) => {
     answering = a;
     btn.textContent = a ? "Dừng" : "Gửi";
+    if (a) log.append(think);
+    else {
+      think.remove();
+      log.querySelectorAll(".typing").forEach((n) => n.classList.remove("typing"));
+    }
   };
 
   const render = (b: Bubble) =>
     stick(() => {
+      b.box.classList.toggle("typing", answering); // a blinking cursor at the end of what is being written
       const src = b.done + (b.done && b.live ? "\n\n" : "") + b.live;
       b.box.innerHTML = md.parse(src, { async: false }) as string; // the only innerHTML: marked output, html escaped above
       for (const pre of Array.from(b.box.querySelectorAll("pre"))) {
@@ -130,8 +143,9 @@ export function openChat(opts: { sessionId: string; title: string; token: string
     const s = el("summary");
     s.append(el("span", `\u{1F527} ${name} `, "tname"), el("span", `\u2014 ${summary}`));
     const out = el("pre");
-    if (inp) d.append(s, el("pre", (JSON.stringify(inp, null, 2) ?? "").slice(0, MAX_RESULT)), out);
+    if (inp) d.append(s, toolBody(name, inp) ?? el("pre", (JSON.stringify(inp, null, 2) ?? "").slice(0, MAX_RESULT)), out);
     else d.append(s, out);
+    d.open = name === "TodoWrite"; // the plan is worth seeing without a click
     add(d);
     return out;
   };
@@ -160,7 +174,8 @@ export function openChat(opts: { sessionId: string; title: string; token: string
             cur.live = "";
             render(cur);
           } else if (c.type === "tool_use" && c.id) {
-            tools.set(c.id, toolRow(c.name ?? "tool", mainLine(c.input), c.input ?? {}));
+            const todos = c.name === "TodoWrite" && Array.isArray(c.input?.todos) ? c.input.todos.length : -1;
+            tools.set(c.id, toolRow(c.name ?? "tool", todos >= 0 ? `${todos} việc` : mainLine(c.input), c.input ?? {}));
           }
         }
         return;
@@ -225,7 +240,11 @@ export function openChat(opts: { sessionId: string; title: string; token: string
     }
     if (f?.t === "history" && Array.isArray(f.items)) {
       for (const h of f.items) {
-        if (h.role === "user") userMsg(String(h.text));
+        if (h.role === "user") {
+          userMsg(String(h.text));
+          sent.push(String(h.text));
+          hi = sent.length;
+        }
         else if (h.role === "claude") {
           const b = bubble("");
           b.done = String(h.text);
@@ -237,6 +256,7 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   };
   ws.onclose = (e) => {
     locked = true;
+    setAnswering(false);
     input.disabled = btn.disabled = true;
     note(e.code === 4000 ? `Phiên đã kết thúc (mã ${e.reason})` : "Không kết nối được chat", "err");
   };
@@ -253,6 +273,9 @@ export function openChat(opts: { sessionId: string; title: string; token: string
     const text = input.value.trim();
     if (!text) return;
     input.value = "";
+    input.style.height = "auto";
+    sent.push(text);
+    hi = sent.length;
     userMsg(text);
     cur = null;
     stopped = false;
@@ -260,10 +283,33 @@ export function openChat(opts: { sessionId: string; title: string; token: string
     send({ t: "say", text });
   };
   btn.onclick = submit;
+  const grow = () => {
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, MAX_INPUT)}px`;
+  };
+  input.addEventListener("input", grow);
+  const recall = (to: number) => {
+    hi = to;
+    input.value = sent[hi] ?? "";
+    input.setSelectionRange(input.value.length, input.value.length);
+    grow();
+  };
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       if (!answering) submit();
+    } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.isComposing && !e.shiftKey) {
+      // earlier messages, like a shell: only when it cannot be a caret move (empty box, caret at the edge, or already browsing)
+      const browsing = hi < sent.length && input.value === sent[hi];
+      const atStart = input.value === "" || (input.selectionStart === 0 && input.selectionEnd === 0);
+      const atEnd = input.selectionStart === input.value.length;
+      if (e.key === "ArrowUp" && sent.length && hi > 0 && (browsing || atStart)) {
+        e.preventDefault();
+        recall(hi - 1);
+      } else if (e.key === "ArrowDown" && browsing && atEnd) {
+        e.preventDefault();
+        recall(hi + 1);
+      }
     }
   });
   // focus can sit on a bubble/button/body: Esc must still stop claude and not reach panel/scene handlers
