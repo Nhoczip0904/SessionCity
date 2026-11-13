@@ -164,9 +164,27 @@
       .chat-log .tool summary::-webkit-details-marker { display: none; }
       .chat-log .tool summary::before { content: "›"; color: #8a857a; }
       .chat-log .tool[open] summary::before { content: "⌄"; }
+      .chat-log .tool[open] { min-width: min(520px, 88%); }
+      .chat-log .tool summary > span:first-child { flex: none; white-space: nowrap; }
       .chat-log .tool .tname { color: #ece9e1; font-weight: 600; }
       .chat-log .tool summary span:last-child { font-family: ui-monospace, Consolas, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .chat-log .tool pre { margin: 0; padding: 10px 12px; border-top: 1px solid #33312e; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #c9c4b8; }
+      .chat-log .think { align-self: flex-start; display: flex; align-items: center; gap: 10px; color: #a8a398; font-size: 14px; }
+      .chat-log .dots { width: 26px; height: 6px; background: radial-gradient(circle, #c96442 3px, transparent 3.5px) 0 0 / 9px 6px repeat-x; animation: dots 1s steps(3) infinite; }
+      @keyframes dots { 0% { opacity: 0.25; } 50% { opacity: 1; } 100% { opacity: 0.25; } }
+      .chat-log .msg.claude.typing > :last-child::after { content: "\258D"; margin-left: 2px; color: #c96442; animation: blink 1s steps(1) infinite; }
+      @keyframes blink { 50% { opacity: 0; } }
+      .chat-log .tool .diff, .chat-log .tool .term, .chat-log .tool .todos { margin: 0; border-top: 1px solid #33312e; max-height: 320px; overflow: auto; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+      .chat-log .diff-file { padding: 6px 12px; color: #b9b4a8; background: #1c1b19; border-bottom: 1px solid #33312e; }
+      .chat-log .diff .add, .chat-log .diff .del, .chat-log .diff .more { padding: 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .chat-log .diff .add { background: rgba(70, 160, 90, 0.18); color: #a9e0b3; }
+      .chat-log .diff .del { background: rgba(200, 70, 70, 0.18); color: #f0a9a9; }
+      .chat-log .diff .more { color: #8a857a; }
+      .chat-log .term { padding: 10px 12px; background: #161514; color: #e8e4da; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .chat-log .todos { list-style: none; padding: 8px 12px; margin: 0; }
+      .chat-log .todos li { padding: 2px 0; color: #c9c4b8; }
+      .chat-log .todos li.completed { color: #8a857a; text-decoration: line-through; }
+      .chat-log .todos li.in_progress { color: #e8c9a0; }
       .chat-log .perm { align-self: flex-start; max-width: 88%; border: 1px solid #6b5338; background: #2a241c; border-radius: 12px; padding: 12px 14px; }
       .chat-log .perm .ptool { font-weight: 600; font-size: 13px; color: #e8c9a0; }
       .chat-log .perm pre { margin: 6px 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #d8d4ca; }

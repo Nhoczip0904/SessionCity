@@ -247,9 +247,9 @@ describe("openChat", () => {
   });
   it("tool row shows input json above the result, with prefix", () => {
     const { ev } = setup();
-    ev(asst("m1", { type: "tool_use", id: "tu1", name: "Bash", input: { command: "ls", big: "z".repeat(6000) } }));
+    ev(asst("m1", { type: "tool_use", id: "tu1", name: "Grep", input: { command: "ls", big: "z".repeat(6000) } }));
     const row = $(".tool");
-    expect(row.querySelector("summary")!.textContent).toBe("\u{1F527} Bash — ls");
+    expect(row.querySelector("summary")!.textContent).toBe("\u{1F527} Grep — ls");
     const pres = row.querySelectorAll("pre");
     expect(pres.length).toBe(2);
     expect(pres[0].textContent!.startsWith('{\n  "command": "ls"')).toBe(true);
