@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { renderPrDialog } from "../src/client/shelfDialog.js";
+import { renderPrBoard } from "../src/client/shelfDialog.js";
 import type { RepoPrs } from "../src/shared/types.js";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -19,9 +19,9 @@ const DATA: RepoPrs[] = [
   { repo: "broken", prs: [], error: "gh auth login required" },
 ];
 
-describe("the PR board in the review building", () => {
+describe("the PR board on the main screen", () => {
   it("groups PRs by repo; every PR shows who made it and its review and CI state, even when there is none yet; each links to GitHub in a new tab", async () => {
-    const d = renderPrDialog(async () => DATA);
+    const d = renderPrBoard(async () => DATA);
     expect(d.textContent).toContain("Đang tải");
     await tick();
     expect([...d.querySelectorAll("h3")].map((h) => h.textContent)).toEqual(["city", "empty", "broken"]);
@@ -44,21 +44,50 @@ describe("the PR board in the review building", () => {
   });
 
   it("says so when no session is in a git repo, or the load fails", async () => {
-    const d = renderPrDialog(async () => []);
+    const d = renderPrBoard(async () => []);
     await tick();
     expect(d.textContent).toContain("Chưa có session nào trong repo git");
-    const e = renderPrDialog(async () => { throw new Error("x"); });
+    const e = renderPrBoard(async () => { throw new Error("x"); });
     await tick();
     expect(e.textContent).toContain("Không tải được danh sách PR");
   });
 
   it("Làm mới asks again, skipping the cache", async () => {
     const load = vi.fn(async (_fresh: boolean) => DATA);
-    const d = renderPrDialog(load);
+    const d = renderPrBoard(load);
     await tick();
-    d.querySelector<HTMLButtonElement>("button.go")!.click();
+    d.querySelector<HTMLButtonElement>("button.refresh")!.click();
     await tick();
     expect(load.mock.calls.map((c) => c[0])).toEqual([false, true]);
     expect(d.querySelectorAll(".pr").length).toBe(4);
+  });
+
+  it("is a panel, not a dialog, and its title bar folds the list away and back", async () => {
+    const d = renderPrBoard(async () => DATA);
+    await tick();
+    expect(d.id).toBe("prs");
+    expect(d.classList.contains("dialog")).toBe(false);
+    const fold = d.querySelector<HTMLButtonElement>("button.fold")!;
+    fold.click();
+    expect(d.classList.contains("folded")).toBe(true);
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+    fold.click();
+    expect(d.classList.contains("folded")).toBe(false);
+  });
+
+  it("asks again on its own while it is on the page, without blanking the list", async () => {
+    vi.useFakeTimers();
+    try {
+      const load = vi.fn(async (_fresh: boolean) => DATA);
+      const d = renderPrBoard(load, 1000);
+      document.body.append(d);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(load.mock.calls.map((c) => c[0])).toEqual([false, false]);
+      expect(d.textContent).not.toContain("Đang tải");
+      expect(d.querySelectorAll(".pr").length).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

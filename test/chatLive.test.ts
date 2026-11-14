@@ -17,7 +17,7 @@ class FakeWS {
   }
   close() {}
 }
-const deps = { WebSocket: FakeWS as unknown as typeof WebSocket } as ChatDeps;
+const deps = { WebSocket: FakeWS as unknown as typeof WebSocket, fetch: (async () => ({ ok: false })) as unknown as typeof fetch } as ChatDeps;
 
 function setup() {
   openChat({ sessionId: "abc", title: "proj", token: "t", onClose: () => {} }, deps);

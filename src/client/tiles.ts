@@ -91,7 +91,7 @@ export const WALL_WHITE: Wall = { top: [349, 350, 351], base: [386, 387, 388] };
 // windows and doors (drawn over a facade tile); 2-tall pieces are [top, bottom]
 export const WIN_BROWN = 617, WIN_GRAY = 729;
 export const WIN_ARCH = [583, 620];
-export const DOOR_GLASS = [800, 837], DOOR_DARK = [804, 841], DOOR_WOOD = [583, 620];
+export const DOOR_GLASS = [800, 837], DOOR_GRAY = [695, 732], DOOR_WOOD = [584, 621]; // framed glass doors with a push bar (not the arched window 583/620)
 export const SHUTTER = [880, 917];
 // moving cars, same colours as CARS (whose side view faces left): 2×2 views [tl, tr, bl, br]
 export const CARS_UP = [[697, 698, 734, 735], [845, 846, 882, 883], [993, 994, 1030, 1031]]; // seen from behind

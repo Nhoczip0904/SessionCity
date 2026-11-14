@@ -3,6 +3,14 @@ export type ExploreState = "off" | "on" | "user";
 
 const MODELS: [string, string][] = [["Mặc định", ""], ["Opus", "opus"], ["Sonnet", "sonnet"], ["Haiku", "haiku"], ["Fable", "fable"]];
 const SUBS: [string, string][] = [["Không đặt", ""], ["Haiku", "haiku"], ["Sonnet", "sonnet"], ["Opus", "opus"]];
+/** Ready-made first requests; picking one fills the box, which can still be edited. */
+export const TEMPLATES: [string, string][] = [
+  ["Không dùng mẫu", ""],
+  ["Sửa test đang fail", "Chạy test, tìm test đang fail, tìm nguyên nhân gốc và sửa. Chạy lại các test liên quan để xác nhận."],
+  ["Review thay đổi chưa commit", "Xem git diff và review các thay đổi chưa commit: lỗi logic, bảo mật, thiếu test. Chỉ báo cáo, không sửa."],
+  ["Viết test cho thay đổi gần nhất", "Đọc thay đổi gần nhất và viết test cho phần mới. Chỉ chạy các test trong phạm vi thay đổi."],
+  ["Tóm tắt dự án", "Đọc cấu trúc dự án rồi tóm tắt: mục đích, cách chạy, build, test và những chỗ cần lưu ý. Không sửa gì."],
+];
 const STATE_TEXT: Record<ExploreState, string> = { off: "Đang tắt", on: "Đang bật", user: "" };
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, cls?: string): HTMLElementTagNameMap[K] {
@@ -83,7 +91,8 @@ export function confirmDialog(text: string, ok: string, cancel: string): Promise
   });
 }
 
-export function renderLaunchDialog(folders: string[], onSubmit: (opts: LaunchOpts) => Promise<string | null>, preset?: string): HTMLElement {
+/** `presetPrompt` fills the request box; `onQueue` adds a "Xếp hàng" button that hands the options over and returns how many jobs wait. */
+export function renderLaunchDialog(folders: string[], onSubmit: (opts: LaunchOpts) => Promise<string | null>, preset?: string, presetPrompt?: string, onQueue?: (opts: LaunchOpts) => number): HTMLElement {
   const list = preset && !folders.includes(preset) ? [preset, ...folders] : folders;
   const folder = select("folder", list.map((f) => [f, f]));
   if (preset) folder.value = preset;
@@ -95,16 +104,32 @@ export function renderLaunchDialog(folders: string[], onSubmit: (opts: LaunchOpt
   const prompt = el("textarea");
   prompt.maxLength = 4000;
   prompt.rows = 4;
+  if (presetPrompt) prompt.value = presetPrompt.slice(0, 4000);
+  const tpl = select("tpl", TEMPLATES.map(([label, text]) => [label, text]));
+  tpl.onchange = () => void (tpl.value && (prompt.value = tpl.value));
   const msg = el("div", undefined, "msg");
   const go = el("button", "Mở", "go");
   go.type = "button";
-  const root = frame("Mở phiên Claude Code", field("Thư mục", folder), field("Thư mục khác", path), field("Model", model), field("Model nhân viên", sub), field("Yêu cầu đầu tiên (tuỳ chọn)", prompt), msg, go);
-  go.onclick = async () => {
-    if (go.disabled) return;
+  const later = el("button", "Xếp hàng");
+  later.type = "button";
+  later.title = "Mở khi có chỗ: tối đa 3 phiên đang làm cùng lúc";
+  const root = frame("Mở phiên Claude Code", field("Thư mục", folder), field("Thư mục khác", path), field("Model", model), field("Model nhân viên", sub), field("Mẫu việc", tpl), field("Yêu cầu đầu tiên (tuỳ chọn)", prompt), msg, go, ...(onQueue ? [later] : []));
+  const collect = (): LaunchOpts => {
     const opts: LaunchOpts = { cwd: path.value.trim() || folder.value };
     if (model.value) opts.model = model.value;
     if (sub.value) opts.subagentModel = sub.value;
     if (prompt.value) opts.prompt = prompt.value;
+    return opts;
+  };
+  later.onclick = () => {
+    const n = onQueue!(collect());
+    msg.textContent = `Đã xếp hàng — ${n} việc đang chờ`;
+    prompt.value = "";
+    tpl.value = "";
+  };
+  go.onclick = async () => {
+    if (go.disabled) return;
+    const opts = collect();
     go.disabled = true;
     msg.textContent = "";
     const err = await onSubmit(opts);

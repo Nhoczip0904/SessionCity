@@ -1,9 +1,9 @@
-import type { Delta, State } from "../shared/types.js";
+import type { AskRow, Delta, State } from "../shared/types.js";
 
 export type Conn = "connecting" | "open" | "closed" | "auth";
 
 /** Fetch /api/state then hold a WebSocket; reconnect 1 s → 2 s → 4 s … max 10 s. Stops on a missing/rejected token. */
-export function connect(onState: (s: State) => void, onDelta: (d: Delta) => void, onConn: (c: Conn) => void = () => {}) {
+export function connect(onState: (s: State) => void, onDelta: (d: Delta) => void, onConn: (c: Conn) => void = () => {}, onAsks: (a: AskRow[]) => void = () => {}) {
   const token = new URLSearchParams(location.search).get("token");
   if (!token) return onConn("auth");
   const q = `token=${encodeURIComponent(token)}`;
@@ -32,7 +32,7 @@ export function connect(onState: (s: State) => void, onDelta: (d: Delta) => void
       onConn("open");
     };
     ws.onmessage = (ev) => {
-      let msg: { type: string; state?: State; delta?: Delta };
+      let msg: { type: string; state?: State; delta?: Delta; asks?: AskRow[] };
       try {
         msg = JSON.parse(ev.data as string);
       } catch {
@@ -40,6 +40,7 @@ export function connect(onState: (s: State) => void, onDelta: (d: Delta) => void
       }
       if (msg.type === "state" && msg.state) onState(msg.state);
       else if (msg.type === "delta" && msg.delta) onDelta(msg.delta);
+      else if (msg.type === "asks" && Array.isArray(msg.asks)) onAsks(msg.asks);
     };
     ws.onclose = retry;
   }

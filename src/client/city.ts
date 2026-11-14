@@ -2,12 +2,14 @@ import { Container, Graphics, Text, Ticker } from "pixi.js";
 import type { District } from "../shared/types.js";
 import { districtInfo } from "../shared/districts.js";
 import { drawTiles } from "./cityDraw.js";
+import { FOREST } from "./forest.js";
 import type { Pt } from "./path.js";
 import { onRoad, type Road } from "./roads.js";
 import type { Sheets } from "./tiles.js";
 
 export const TILE = 16;
 const COLS = 48, ROWS = 43;
+const FOREST_ROAD = FOREST; // the roads leave the city this far
 // a river winds down the map, 3 tiles wide; its left column per row (an S-bend)
 const RIVER_L = Array.from({ length: ROWS }, (_, y) =>
   y < 7 ? 29 : y < 9 ? 30 : y < 21 ? 31 : y < 23 ? 30 : y < 25 ? 29 : y < 32 ? 28 : y < 36 ? 29 : 30);
@@ -23,6 +25,13 @@ export const ROADS: Road[] = [
   { x: 44, y: 2, w: 2, h: 28 }, // east avenue
   { x: 33, y: 2, w: 13, h: 2 }, // east bank, north lane
   { x: 32, y: 28, w: 14, h: 2 }, // east bank, south lane
+  // the main road and both avenues run on out of the city into the forest (see forest.ts); each overlaps the road it continues
+  { x: -FOREST_ROAD, y: 15, w: FOREST_ROAD + 4, h: 2 },
+  { x: 44, y: 15, w: FOREST_ROAD + 4, h: 2 },
+  { x: 2, y: -FOREST_ROAD, w: 2, h: FOREST_ROAD + 4 },
+  { x: 44, y: -FOREST_ROAD, w: 2, h: FOREST_ROAD + 4 },
+  { x: 2, y: 28, w: 2, h: FOREST_ROAD + ROWS - 28 },
+  { x: 44, y: 28, w: 2, h: FOREST_ROAD + ROWS - 28 },
 ];
 const isRoad = (x: number, y: number) => ROADS.some((r) => onRoad(r, x, y));
 // footpaths between the two building rows of a block: the upper row's doors open onto them
@@ -173,7 +182,9 @@ export function buildCity(sheets: Sheets | null) {
     return g;
   }
 
-  return { cols: COLS, rows: ROWS, walkable, doors, hqDoors, plots, hqPlots, plaza, isRiver, draw, ripples };
+  /** left column of the river at row y; above and below the map it runs straight on */
+  const riverLeft = (y: number) => RIVER_L[Math.min(ROWS - 1, Math.max(0, y))]!;
+  return { cols: COLS, rows: ROWS, walkable, doors, hqDoors, plots, hqPlots, plaza, isRiver, riverLeft, draw, ripples };
 }
 
 /** Water over the river tiles, with sandy banks where it meets the land. */

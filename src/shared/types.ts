@@ -12,6 +12,12 @@ export interface Session {
   branch?: string;
   title?: string;
   model?: string;
+  /** main repo folder when this session works in a git worktree of it; `project` is then the repo's name */
+  repo?: string;
+  /** the worktree folder's own name */
+  worktree?: string;
+  /** `git push` / `gh pr create` commands the session has run */
+  ships?: { push: number; pr: number };
   lastActivity: string;
   status: "working" | "waiting" | "idle";
   district: District;
@@ -67,6 +73,10 @@ export interface RepoPrs { repo: string; prs: PrRow[]; error?: string }
 export interface CmdRun { at: string; project: string; command: string; ok: boolean | null; /** how long it ran */ ms: number | null; /** a short result line, "" when none */ note: string }
 export interface ChangedFile { path: string; status: "M" | "A" | "D" | "?"; add: number; del: number }
 export interface RepoChanges { repo: string; files: ChangedFile[]; error?: string }
+/** The footer of a chat: which model it last ran on, how full its context is, what it wrote and what is uncommitted in its repo. */
+export interface SessionMeta { model: string | null; /** tokens in context after the last reply */ used: number; outputs: string[]; changes: RepoChanges[] }
+/** A permission question a chat process of the city is waiting on; `summary` is the command or file in one line. */
+export interface AskRow { session: string; id: string; tool: string; summary: string }
 export interface CiRun { name: string; branch: string; at: string; state: "pass" | "fail" | "pending"; url: string | null }
 export interface RepoCi { repo: string; runs: CiRun[]; error?: string }
 export interface Alert { at: string; project: string; tool: string; text: string }

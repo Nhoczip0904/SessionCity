@@ -89,7 +89,13 @@ export function drawTiles(s: Sheets, m: MapLayout): Container {
     }
 
   for (const p of m.plots) DISTRICT_DRAW[p.id](put, fx, p);
-  m.hq.forEach((h) => house(put, { x: h.x, y: h.y, w: 2, h: 4, up: h.up }, K.ROOF_LIGHT, K.WALL_SAND, { door: K.DOOR_GLASS }));
+  m.hq.forEach((h, n) => {
+    const k = (h.x + h.y + n) % 4;
+    const { ry } = house(put, { x: h.x, y: h.y, w: 2, h: 4, up: h.up }, [K.ROOF_RED, K.ROOF_SAND, K.ROOF_DARK, K.ROOF_LIGHT][k], n % 3 === 1 ? K.WALL_BRICK : K.WALL_SAND,
+      { door: K.DOOR_GLASS, g: fx, awning: AWNING[k] });
+    if (n % 2 === 0) chimney(fx, h.x * T + 21, ry * T + 3);
+    else skylight(fx, h.x * T + 8, ry * T + 8, 14, 10);
+  });
   root.addChild(fx);
   return root;
 }
@@ -104,6 +110,28 @@ interface HouseOpts {
   win?: number | number[]; // window per facade column; [top, bottom] for 2-tall windows
   winEvery?: number; // window on every n-th column (default 2)
   roofRows?: number;
+  g?: Graphics; // when given, the roof gets an eave shadow, texture lines and the door an awning
+  roofStyle?: "shingle" | "ribbed"; // default shingle lines; ribbed = corrugated tin
+  awning?: number; // colour of the striped awning over the door
+}
+const AWNING = [0xc0392b, 0x2e86c1, 0x27ae60, 0xd68910];
+
+// rooftop props, all plain rectangles so they sit on any roof colour
+function chimney(g: Graphics, x: number, y: number) {
+  g.rect(x, y, 7, 10).fill(0x5a4a3a).rect(x - 1, y, 9, 2).fill(0x3a2e24);
+}
+function skylight(g: Graphics, x: number, y: number, w: number, h: number) {
+  g.rect(x, y, w, h).fill(0x9ec9e8).stroke({ color: 0x55606c, width: 1 });
+  g.rect(x + (w >> 1), y, 1, h).fill(0x55606c);
+}
+function aircon(g: Graphics, x: number, y: number) {
+  g.rect(x, y, 11, 8).fill(0xc4c8d0).stroke({ color: 0x6a707c, width: 1 });
+  g.circle(x + 5.5, y + 4, 2.5).fill(0x6a707c);
+}
+function solar(g: Graphics, x: number, y: number, w: number, h: number) {
+  g.rect(x, y, w, h).fill(0x23406e).stroke({ color: 0xaab4c4, width: 1 });
+  for (let i = 4; i < w; i += 4) g.rect(x + i, y, 1, h).fill({ color: 0xaab4c4, alpha: 0.6 });
+  for (let j = 4; j < h; j += 4) g.rect(x, y + j, w, 1).fill({ color: 0xaab4c4, alpha: 0.6 });
 }
 
 /**
@@ -136,6 +164,20 @@ function house(put: Put, b: Box, roof: K.Roof, wall: K.Wall, o: HouseOpts = {}) 
   // the door's bottom meets the ground-floor row on the road side
   const dy = b.up ? fy : fy + fr - (o.door?.length ?? 0);
   o.door?.forEach((t, k) => put(t, door, dy + k));
+  const g = o.g;
+  if (g) {
+    const x0 = b.x * T, w = b.w * T, y0 = ry * T, h = roofRows * T;
+    for (let y = y0 + 6; y < y0 + h - 5; y += 4)
+      if (o.roofStyle === "ribbed") for (let x = x0 + 3; x < x0 + w - 3; x += 4) g.rect(x, y0 + 3, 1, h - 7).fill({ color: 0x000000, alpha: 0.12 });
+      else g.rect(x0 + 2, y, w - 4, 1).fill({ color: 0x000000, alpha: 0.1 });
+    g.rect(x0, b.up ? y0 : y0 + h - 4, w, 4).fill({ color: 0x000000, alpha: 0.22 }); // eave shadow over the facade
+    g.rect(x0, b.up ? y0 + h - 1 : y0, w, 1).fill({ color: 0xffffff, alpha: 0.3 }); // lit far edge
+    if (o.awning !== undefined && o.door && !b.up) {
+      const ax = door * T - 3, ay = dy * T - 1;
+      for (let i = 0; i < 5; i++) g.rect(ax + i * 4, ay, 4, 5).fill(i % 2 ? 0xf4f0e6 : o.awning);
+      g.rect(ax, ay + 5, 20, 1).fill({ color: 0x000000, alpha: 0.3 });
+    }
+  }
   return { ry, fy, roofRows };
 }
 
@@ -146,25 +188,49 @@ const fill = (put: Put, i: number, x: number, y: number, w: number, h: number) =
 type DrawFn = (put: Put, g: Graphics, p: Box) => void;
 
 const DISTRICT_DRAW: Record<District, DrawFn> = {
-  library: (put, _g, p) => house(put, p, K.ROOF_RED, K.WALL_BRICK, { door: K.DOOR_GLASS, win: K.WIN_ARCH }),
-  design: (put, _g, p) => house(put, p, K.ROOF_LIGHT, K.WALL_GLASS, { door: K.DOOR_GLASS }),
-  review: (put, _g, p) => house(put, p, K.ROOF_DARK, K.WALL_GRAY, { door: K.DOOR_GLASS, win: K.WIN_GRAY, winEvery: 1 }),
-  lab: (put, _g, p) => house(put, p, K.ROOF_LIGHT, K.WALL_WHITE, { door: K.DOOR_GLASS }),
+  library: (put, g, p) => {
+    const { ry } = house(put, p, K.ROOF_RED, K.WALL_BRICK, { door: K.DOOR_GLASS, win: K.WIN_ARCH, g, awning: AWNING[1] });
+    chimney(g, (p.x + p.w - 2) * T, ry * T + 6);
+    skylight(g, (p.x + 2) * T, ry * T + 12, 22, 14);
+    skylight(g, (p.x + 5) * T, ry * T + 12, 22, 14);
+  },
+  design: (put, g, p) => {
+    const { ry } = house(put, p, K.ROOF_LIGHT, K.WALL_GLASS, { door: K.DOOR_GLASS, g, awning: AWNING[0] });
+    solar(g, (p.x + 1) * T + 2, ry * T + 8, 46, 20);
+    solar(g, (p.x + 5) * T - 2, ry * T + 8, 46, 20);
+  },
+  review: (put, g, p) => {
+    const { ry } = house(put, p, K.ROOF_DARK, K.WALL_GRAY, { door: K.DOOR_GLASS, win: K.WIN_GRAY, winEvery: 1, g, awning: AWNING[3] });
+    aircon(g, (p.x + 1) * T + 2, ry * T + 8);
+    aircon(g, (p.x + 3) * T, ry * T + 8);
+    aircon(g, (p.x + p.w - 3) * T, ry * T + 8);
+    chimney(g, (p.x + p.w - 2) * T, ry * T + 6);
+  },
+  lab: (put, g, p) => {
+    const { ry } = house(put, p, K.ROOF_LIGHT, K.WALL_WHITE, { door: K.DOOR_GLASS, g, awning: AWNING[2] });
+    aircon(g, p.x * T + 5, ry * T + 8);
+    solar(g, (p.x + 2) * T, ry * T + 4, 26, 12);
+    g.circle((p.x + 3) * T + 4, ry * T + 23, 4).fill(0xe8eaf0).stroke({ color: 0x6a707c, width: 1 }); // satellite dish
+  },
   townhall: (put, g, p) => {
-    const { ry } = house(put, p, K.ROOF_LIGHT, K.WALL_SAND, { door: K.DOOR_DARK, win: K.WIN_ARCH });
+    const { ry } = house(put, p, K.ROOF_LIGHT, K.WALL_SAND, { door: K.DOOR_GRAY, win: K.WIN_ARCH, g, awning: AWNING[0] });
     const cx = (p.x + (p.w >> 1)) * T;
+    g.circle(cx, ry * T + 38, 6).fill(0xf8f4e8).stroke({ color: 0x5a4a3a, width: 1 }); // clock over the entrance
+    g.rect(cx, ry * T + 34, 1, 4).fill(0x3a3a3a).rect(cx, ry * T + 38, 3, 1).fill(0x3a3a3a);
+    chimney(g, (p.x + 1) * T, ry * T + 10);
+    chimney(g, (p.x + p.w - 2) * T, ry * T + 10);
     // flagpole and flag on the roof
     g.rect(cx - 1, ry * T + 2, 2, 18).fill(0x3a3a3a);
     g.rect(cx + 1, ry * T + 2, 10, 6).fill(0xd94a3a);
   },
-  database: (put, _g, p) => {
+  database: (put, g, p) => {
     // warehouse: tin roof, roller shutters, barrels and crates out front
-    house(put, { ...p, w: p.w - 1 }, K.ROOF_DARK, K.WALL_GRAY, { door: K.SHUTTER, win: K.SHUTTER, winEvery: 3 });
+    house(put, { ...p, w: p.w - 1 }, K.ROOF_DARK, K.WALL_GRAY, { door: K.SHUTTER, win: K.SHUTTER, winEvery: 3, g, roofStyle: "ribbed" });
     const x = p.x + p.w - 1;
     for (let j = 0; j < p.h; j++) put(j % 2 ? K.BARREL : K.CRATE, x, p.y + j);
   },
   factory: (put, g, p) => {
-    const { ry } = house(put, p, K.ROOF_SAND, K.WALL_BRICK, { door: K.SHUTTER, win: K.WIN_BROWN, winEvery: 2 });
+    const { ry } = house(put, p, K.ROOF_SAND, K.WALL_BRICK, { door: K.SHUTTER, win: K.WIN_BROWN, winEvery: 2, g, roofStyle: "ribbed" });
     // sawtooth roof (shaded teeth) and two chimneys with smoke
     for (let i = 0; i + 2 <= p.w; i += 2) {
       const x0 = (p.x + i) * T + 2, x1 = (p.x + i + 2) * T - 2, top = ry * T + 4, bot = (ry + 3) * T - 4;
@@ -182,7 +248,10 @@ const DISTRICT_DRAW: Record<District, DrawFn> = {
     for (let i = p.x + 3; i < p.x + p.w; i++) put(K.ROAD_DASH_H, i, p.y + 2);
     put(K.PARKING, p.x + p.w - 1, p.y + p.h - 1);
     parkCar(put, K.CARS[0], p.x + 5, p.y + 3);
-    house(put, { x: p.x, y: p.y, w: 3, h: p.h, up: p.up }, K.ROOF_LIGHT, K.WALL_GLASS, { roofRows: 3 });
+    const t = house(put, { x: p.x, y: p.y, w: 3, h: p.h, up: p.up }, K.ROOF_LIGHT, K.WALL_GLASS, { roofRows: 3, g });
+    aircon(g, p.x * T + 6, t.ry * T + 8);
+    aircon(g, p.x * T + 28, t.ry * T + 8);
+    skylight(g, p.x * T + 8, t.ry * T + 26, 30, 10);
     const px = (p.x + 4) * T, py = (p.y + 1) * T + 14; // plane nose-left on the taxi line
     g.rect(px + 18, py - 16, 8, 32).fill(0xc8ccd4); // wings
     g.rect(px + 38, py - 7, 5, 14).fill(0xc8ccd4); // tail
@@ -192,19 +261,21 @@ const DISTRICT_DRAW: Record<District, DrawFn> = {
     // tall narrow tower centred in a small park
     fill(put, K.GRASS[0], p.x, p.y, p.w, p.h);
     const tx = p.x + (p.w >> 1) - 1;
-    house(put, { x: tx, y: p.y, w: 3, h: p.h, up: p.up }, K.ROOF_LIGHT, K.WALL_GRAY, { door: K.DOOR_DARK, win: K.WIN_GRAY, winEvery: 1, roofRows: 2 });
+    house(put, { x: tx, y: p.y, w: 3, h: p.h, up: p.up }, K.ROOF_LIGHT, K.WALL_GRAY, { door: K.DOOR_GRAY, win: K.WIN_GRAY, winEvery: 1, roofRows: 2, g });
     for (const x of [p.x + 1, p.x + p.w - 2]) put(K.BUSH, x, p.y + 2);
     const ax = (tx + 3) * T - 4, ay = (p.up ? p.y + 3 : p.y) * T + 4; // antenna on the roof corner
     g.rect(ax - 1, ay - 14, 2, 18).fill(0x3a3a3a);
     g.rect(ax - 4, ay - 10, 8, 1).fill(0x3a3a3a);
     g.circle(ax, ay - 15, 2).fill(0xe04040);
   },
-  home: (put, _g, p) => {
+  home: (put, g, p) => {
     // two small tiled-roof houses with a yard between
     fill(put, K.GRASS[1], p.x, p.y, p.w, p.h);
     const hy = p.up ? p.y : p.y + 1;
-    house(put, { x: p.x, y: hy, w: 4, h: p.h - 1, up: p.up }, K.ROOF_RED, K.WALL_SAND, { door: K.DOOR_WOOD, win: K.WIN_BROWN });
-    house(put, { x: p.x + 5, y: hy, w: 4, h: p.h - 1, up: p.up }, K.ROOF_RED, K.WALL_BRICK, { door: K.DOOR_WOOD, win: K.WIN_BROWN });
+    const a = house(put, { x: p.x, y: hy, w: 4, h: p.h - 1, up: p.up }, K.ROOF_RED, K.WALL_SAND, { door: K.DOOR_WOOD, win: K.WIN_BROWN, g, awning: AWNING[3] });
+    const b = house(put, { x: p.x + 5, y: hy, w: 4, h: p.h - 1, up: p.up }, K.ROOF_SAND, K.WALL_BRICK, { door: K.DOOR_WOOD, win: K.WIN_BROWN, g, awning: AWNING[2] });
+    chimney(g, (p.x + 3) * T - 4, a.ry * T + 4);
+    chimney(g, (p.x + 5) * T + 4, b.ry * T + 4);
     put(K.BUSH, p.x + 4, p.y + 2);
     put(K.SIDEWALK, p.x + 4, p.up ? p.y : p.y + p.h - 1); // path to the district door on the road
   },

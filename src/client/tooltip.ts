@@ -10,7 +10,10 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, cls?: 
   return e;
 }
 
-export function renderDistrictCard(info: DistrictInfo, present: string[]): HTMLElement {
+/** Someone standing in a district; sessions carry their avatar (a data URL), subagents do not. */
+export type Present = { name: string; avatar?: string | null };
+
+export function renderDistrictCard(info: DistrictInfo, present: Present[]): HTMLElement {
   const card = el("div", undefined, "district-card");
   const head = el("div", undefined, "dc-head");
   head.append(el("b", info.label), " · ", info.sign);
@@ -21,19 +24,32 @@ export function renderDistrictCard(info: DistrictInfo, present: string[]): HTMLE
     for (const x of info.examples) ul.append(el("li", x));
     card.append(ul);
   }
-  const names = present.slice(0, MAX_PRESENT).join(", ") + (present.length > MAX_PRESENT ? "…" : "");
-  card.append(el("div", `Đang có mặt: ${names || "—"}`));
+  const row = el("div", "Đang có mặt: ", "dc-present");
+  for (const p of present.slice(0, MAX_PRESENT)) {
+    const who = el("span", undefined, "dc-who");
+    if (p.avatar) {
+      const img = el("img");
+      img.src = p.avatar;
+      img.alt = "";
+      who.append(img);
+    }
+    who.append(p.name);
+    row.append(who);
+  }
+  row.append(present.length > MAX_PRESENT ? "…" : present.length ? "" : "—");
+  card.append(row);
   return card;
 }
 
 export function presentAt(
   district: District,
-  sessions: { district: District; project: string }[],
+  sessions: { id: string; district: District; project: string }[],
   employees: { district: District; type: string; status: string }[],
-): string[] {
+  avatarOf?: (sid: string) => string | null,
+): Present[] {
   return [
-    ...sessions.filter((x) => x.district === district).map((x) => x.project),
-    ...employees.filter((x) => x.district === district && x.status === "working").map((x) => x.type),
+    ...sessions.filter((x) => x.district === district).map((x) => ({ name: x.project, avatar: avatarOf?.(x.id) })),
+    ...employees.filter((x) => x.district === district && x.status === "working").map((x) => ({ name: x.type })),
   ];
 }
 

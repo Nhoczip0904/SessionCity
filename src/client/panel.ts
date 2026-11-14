@@ -1,5 +1,5 @@
 import { districtInfo } from "../shared/districts.js";
-import type { ChatLine, Delta, Employee, EmployeeDetail, SessionDetail, Session, ToolStep, TokenCounts } from "../shared/types.js";
+import type { Delta, Employee, EmployeeDetail, SessionDetail, Session, ToolStep, TokenCounts } from "../shared/types.js";
 
 export type Kind = "session" | "employee";
 export type Detail = SessionDetail | EmployeeDetail;
@@ -49,17 +49,6 @@ function stepRows(steps: ToolStep[]): HTMLElement {
   return box;
 }
 
-/** Mini chat: oldest at the top, like a chat window (input is newest first). */
-function chatRows(chat: ChatLine[]): HTMLElement {
-  const box = el("div", chat.length ? undefined : "—", "chat");
-  for (const l of [...chat].reverse()) {
-    const row = el("div", undefined, `chat-line ${l.role}`);
-    row.append(el("div", `${l.role === "user" ? "Bạn" : "Claude"} · ${clock(l.at)}`, "who"), el("div", l.text, "said"));
-    box.append(row);
-  }
-  return box;
-}
-
 function note(text: string) {
   return text.endsWith("…") ? el("div", TRUNC_NOTE, "note") : null;
 }
@@ -81,24 +70,14 @@ function tokenTable(t: { byModel: Record<string, TokenCounts> } & TokenCounts): 
 
 export const BUSY_CONFIRM = "Phiên này có thể đang mở ở chỗ khác (app desktop hoặc terminal). Mở thêm sẽ có hai nơi cùng ghi vào một cuộc trò chuyện.";
 
-export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id: string) => void, open?: { chat(): void; terminal(): void }, openKind?: "chat" | "terminal" | null): HTMLElement {
+export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id: string) => void): HTMLElement {
   const root = el("div", undefined, "detail");
   const head = el("div", undefined, "d-head");
   head.append(el("h2", d.project));
+  if (d.worktree) head.append(el("div", `worktree ${d.worktree}`, "wt-tag"));
   const meta = el("div", undefined, "meta");
   meta.append(badge(d.status), ` ${[d.branch, d.model].filter(Boolean).join(" · ")} · ${ago(now - Date.parse(d.lastActivity))}`);
   head.append(meta);
-  if (open) {
-    const btn = (text: string, go: () => void) => {
-      const b = el("button", text, "desktop");
-      b.type = "button";
-      b.disabled = !!openKind;
-      b.onclick = go;
-      head.append(b);
-    };
-    btn(openKind === "chat" ? "Đang mở chat" : "Chat", open.chat);
-    btn(openKind === "terminal" ? "Terminal đang mở" : "Terminal", open.terminal);
-  }
   root.append(head);
 
   const det = el("details");
@@ -120,7 +99,6 @@ export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id
     root.append(row);
   }
 
-  root.append(heading("Trò chuyện"), chatRows(d.chat));
   return root;
 }
 
@@ -159,7 +137,6 @@ export class Panel {
   constructor(
     private root: HTMLElement,
     private fetchDetail: (kind: Kind, id: string) => Promise<Detail | "gone">,
-    private overlays?: { isOpen(): "chat" | "terminal" | null; chat(d: SessionDetail): void; terminal(d: SessionDetail): void; confirm(text: string): Promise<boolean> },
   ) {
     const close = el("button", "✕", "close");
     close.type = "button";
@@ -209,12 +186,6 @@ export class Panel {
     }, Math.max(0, this.lastFetch + REFETCH_MS - Date.now()));
   }
 
-  private async openOverlay(kind: "chat" | "terminal", d: SessionDetail) {
-    if (d.status !== "idle" && !(await this.overlays!.confirm(BUSY_CONFIRM))) return;
-    this.overlays![kind](d);
-    void this.refresh(); // lock both buttons now, not at the next poll
-  }
-
   private async refresh() {
     const c = this.cur;
     if (!c) return;
@@ -238,7 +209,7 @@ export class Panel {
     const now = Date.now();
     this.body.replaceChildren(
       c.kind === "session"
-        ? renderSession(res as SessionDetail, now, (id) => void this.open("employee", id), this.overlays && { chat: () => void this.openOverlay("chat", res as SessionDetail), terminal: () => void this.openOverlay("terminal", res as SessionDetail) }, this.overlays?.isOpen())
+        ? renderSession(res as SessionDetail, now, (id) => void this.open("employee", id))
         : renderEmployee(res as EmployeeDetail, now, () => void this.open("session", (res as EmployeeDetail).sessionId)),
     );
     const det = this.body.querySelector("details");

@@ -5,14 +5,16 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as nodePty from "node-pty";
 import { startServer } from "./http.js";
-import { prCache, run } from "./prs.js";
+import { prCache, repoRoots, run } from "./prs.js";
 import { PtyHub } from "./pty.js";
-import { ChatHub } from "./chat.js";
+import { ChatHub, askSummary } from "./chat.js";
 import { follow } from "./follow.js";
-import { buildingCache } from "./buildings.js";
+import { buildingCache, changes } from "./buildings.js";
+import { readMeta } from "./sessionMeta.js";
 import { readOps } from "./activity.js";
 import { history } from "./history.js";
 import { findOnPath, launch, type LaunchOpts } from "./launch.js";
+import type { SessionMeta } from "../shared/types.js";
 import { Store } from "./store.js";
 import { loadConfigRules, packageRoot, Watcher } from "./watch.js";
 
@@ -41,7 +43,7 @@ const launcher = claude
   ? (opts: LaunchOpts) => launch(opts, { claude, wt, spawn, tmpDir: tmpdir(), setTimeout })
   : () => Promise.reject(new Error("claude not found"));
 const hub = new PtyHub(nodePty.spawn, claude);
-const chatHub = new ChatHub(spawn, claude);
+const chatHub = new ChatHub(spawn, claude, 8); // each live chat is one claude process: ~100-300 MB
 const chat = {
   open: (sid: string, cwd: string) => chatHub.open(sid, cwd),
   killAll: () => chatHub.killAll(),
@@ -56,6 +58,10 @@ const chat = {
     return f ? history(f) : [];
   },
 };
+const asks = {
+  list: () => chatHub.asks().map((a) => ({ session: a.sid, id: a.id, tool: a.tool, summary: askSummary(a.input) })),
+  answer: (sid: string, id: string, allow: boolean) => chatHub.answerAsk(sid, id, allow),
+};
 const building = buildingCache({
   sessions: () => store.snapshot().sessions,
   ops: async (sid) => {
@@ -69,7 +75,13 @@ const building = buildingCache({
   },
   exec: run,
 });
-const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), launcher, pty: hub, chat, building, prs: prCache(() => store.snapshot().sessions.map((x) => x.cwd), run) });
+const meta = async (sid: string): Promise<SessionMeta> => {
+  const f = watcher.fileOf(sid);
+  const cwd = store.detailSession(sid)?.cwd ?? "";
+  const [m, repos] = await Promise.all([f ? readMeta(f) : { model: null, used: 0, outputs: [] }, repoRoots([cwd], run)]);
+  return { ...m, changes: await changes(repos, run) };
+};
+const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), launcher, pty: hub, chat, building, meta, asks, prs: prCache(() => store.snapshot().sessions.map((x) => x.cwd), run) });
 await watcher.start();
 console.log(server.url);
 if (!claude) console.error("Chưa tìm thấy claude.exe — nút Mở phiên sẽ báo lỗi (cài: winget install Anthropic.ClaudeCode)");

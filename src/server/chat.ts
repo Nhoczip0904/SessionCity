@@ -15,10 +15,14 @@ export type ChatSpawn = (
   args: string[],
   opts: { cwd: string; env: NodeJS.ProcessEnv; stdio: "pipe"; windowsHide: true },
 ) => ChatProc;
+export interface ChatImage { media_type: string; data: string }
 export interface Chat {
   onEvent(cb: (e: Record<string, unknown>) => void): void;
   onExit(cb: (code: number, lastErr: string) => void): void;
-  say(text: string): void;
+  /** `images` go before the text, as base64 with their media type. */
+  say(text: string, images?: ChatImage[]): void;
+  setModel(model: string): void;
+  setMode(mode: string): void;
   answer(requestId: string, allow: boolean): void;
   interrupt(): void;
   /** Ends the process. */
@@ -40,9 +44,19 @@ interface Entry {
   events: ((e: Ev) => void)[];
   exits: ((code: number, lastErr: string) => void)[];
   asks: Map<string, Ev>; // unanswered can_use_tool requests, by id
+  modeReq: Map<string, string | undefined>; // set_permission_mode requests not yet answered, by id -> the mode before
   errTail: string;
   n: number;
   ended: boolean;
+  busy: boolean; // a turn is running: said something, no result yet
+}
+
+/** The one line a permission question is shown as: the command, the file, or the input cut short. */
+export function askSummary(input: unknown): string {
+  const o = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const pick = [o.command, o.file_path, o.path, o.url, o.pattern].find((v) => typeof v === "string" && v);
+  const text = typeof pick === "string" ? pick : typeof input === "string" ? input : JSON.stringify(input ?? "");
+  return text.replace(/\s+/g, " ").slice(0, 200);
 }
 
 const GRACE_MS = 2000;
@@ -52,6 +66,7 @@ const taskkill = (pid: number) => void execFile("taskkill", ["/PID", String(pid)
 
 export class ChatHub {
   private live = new Set<Entry>();
+  private mode: string | undefined; // the permission mode last chosen, for whichever session is opened next
   private clock = 0;
   constructor(
     private spawn: ChatSpawn,
@@ -89,7 +104,7 @@ export class ChatHub {
     if (this.live.size >= this.max && !this.evict()) return null;
     const args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--resume", sessionId, "--permission-prompts", "host", "--permission-prompt-tool", "stdio"];
     const proc = this.spawn(this.claude, args, { cwd, env: process.env, stdio: "pipe", windowsHide: true });
-    const entry: Entry = { sid: sessionId, proc, exited: false, gone: false, attached: true, timer: null, order: 0, events: [], exits: [], asks: new Map(), errTail: "", n: 0, ended: false };
+    const entry: Entry = { sid: sessionId, proc, exited: false, gone: false, attached: true, timer: null, order: 0, events: [], exits: [], asks: new Map(), modeReq: new Map(), errTail: "", n: 0, ended: false, busy: false };
     this.live.add(entry);
     proc.on("error", () => {
       entry.gone = true;
@@ -120,13 +135,28 @@ export class ChatHub {
         } catch {
           continue;
         }
+        if (e.type === "result" && !e.parent_tool_use_id) {
+          entry.busy = false;
+          if (!entry.attached && !entry.timer) this.park(entry); // the turn ended while nobody was looking
+        }
         const r = e.request as { subtype?: string } | undefined;
         if (e.type === "control_request" && r?.subtype === "can_use_tool" && typeof e.request_id === "string") entry.asks.set(e.request_id, e);
+        const cr = e.type === "control_response" ? (e.response as { subtype?: string; request_id?: string } | undefined) : undefined;
+        if (cr?.request_id && entry.modeReq.has(cr.request_id)) {
+          const before = entry.modeReq.get(cr.request_id);
+          entry.modeReq.delete(cr.request_id);
+          if (cr.subtype !== "success") {
+            this.mode = before;
+            for (const f of entry.events) f({ type: "mode", mode: before ?? "default" }); // refused: show the mode really in force
+          }
+        }
         for (const f of entry.events) f(e);
       }
     });
     proc.stdout.on("error", () => {});
-    return this.handle(entry, false);
+    const chat = this.handle(entry, false);
+    if (this.mode) chat.setMode(this.mode); // a fresh process starts in the default mode
+    return chat;
   }
 
   private end(entry: Entry, code: number): void {
@@ -146,21 +176,27 @@ export class ChatHub {
     return {
       onEvent: (cb) => {
         entry.events.push(cb);
+        if (this.mode) cb({ type: "mode", mode: this.mode });
         if (!replay) return;
         replay = false;
         for (const e of entry.asks.values()) cb(e);
       },
       onExit: (cb) => void entry.exits.push(cb),
-      say: (text) => send({ type: "user", message: { role: "user", content: text } }),
-      answer: (id, allow) => {
-        const ask = entry.asks.get(id);
-        if (!ask) return;
-        entry.asks.delete(id);
+      say: (text, images = []) => {
+        if (mine && !entry.exited) entry.busy = true;
         send({
-          type: "control_response",
-          response: { subtype: "success", request_id: id, response: allow ? { behavior: "allow", updatedInput: (ask.request as { input?: unknown }).input } : { behavior: "deny", message: "Người dùng từ chối" } },
+          type: "user",
+          message: { role: "user", content: images.length ? [...images.map((i) => ({ type: "image", source: { type: "base64", media_type: i.media_type, data: i.data } })), ...(text ? [{ type: "text", text }] : [])] : text },
         });
       },
+      setModel: (model) => send({ type: "control_request", request_id: `mdl-${++entry.n}`, request: { subtype: "set_model", model } }),
+      setMode: (mode) => {
+        const id = `mode-${++entry.n}`;
+        entry.modeReq.set(id, this.mode);
+        this.mode = mode; // taken as in force until claude refuses it
+        send({ type: "control_request", request_id: id, request: { subtype: "set_permission_mode", mode } });
+      },
+      answer: (id, allow) => void (mine && this.reply(entry, id, allow)),
       interrupt: () => send({ type: "control_request", request_id: `int-${++entry.n}`, request: { subtype: "interrupt" } }),
       kill: () => {
         mine = false;
@@ -173,11 +209,49 @@ export class ChatHub {
         entry.events = [];
         entry.exits = [];
         entry.order = ++this.clock;
-        entry.timer = setTimeout(() => this.stop(entry), this.parkMs);
-        entry.timer.unref?.();
+        this.park(entry);
       },
       pending: (id) => mine && entry.asks.has(id),
     };
+  }
+
+  /** Stops a parked process after the park time, unless a turn is still running; the end of that turn parks it again. */
+  private park(entry: Entry): void {
+    if (entry.busy) return;
+    entry.timer = setTimeout(() => this.stop(entry), this.parkMs);
+    entry.timer.unref?.();
+  }
+
+  private reply(entry: Entry, id: string, allow: boolean): void {
+    const ask = entry.asks.get(id);
+    if (!ask) return;
+    entry.asks.delete(id);
+    if (entry.exited) return;
+    entry.proc.stdin.write(
+      JSON.stringify({
+        type: "control_response",
+        response: { subtype: "success", request_id: id, response: allow ? { behavior: "allow", updatedInput: (ask.request as { input?: unknown }).input } : { behavior: "deny", message: "Người dùng từ chối" } },
+      }) + "\n",
+    );
+  }
+
+  /** Permission questions nobody has answered yet, in every live process: attached to a chat window or parked. */
+  asks(): { sid: string; id: string; tool: string; input: unknown }[] {
+    const out: { sid: string; id: string; tool: string; input: unknown }[] = [];
+    for (const e of this.live)
+      for (const [id, a] of e.asks) {
+        const r = a.request as { tool_name?: unknown; input?: unknown };
+        out.push({ sid: e.sid, id, tool: typeof r.tool_name === "string" ? r.tool_name : "Tool", input: r.input });
+      }
+    return out;
+  }
+
+  /** Answers a question whether or not a chat window holds the process. False when no such question is waiting. */
+  answerAsk(sessionId: string, id: string, allow: boolean): boolean {
+    const e = [...this.live].find((x) => x.sid === sessionId && x.asks.has(id));
+    if (!e) return false;
+    this.reply(e, id, allow);
+    return true;
   }
 
   /** Frees the slot at once and ends the process: EOF first, the hard kill if it lingers. */
@@ -192,7 +266,7 @@ export class ChatHub {
 
   private evict(): boolean {
     let oldest: Entry | null = null;
-    for (const e of this.live) if (!e.attached && (!oldest || e.order < oldest.order)) oldest = e;
+    for (const e of this.live) if (!e.attached && !e.busy && (!oldest || e.order < oldest.order)) oldest = e;
     if (oldest) this.stop(oldest);
     return !!oldest;
   }

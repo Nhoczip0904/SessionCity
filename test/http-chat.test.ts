@@ -21,7 +21,9 @@ class FakeChat implements Chat {
   releases = 0;
   onEvent(cb: (e: Record<string, unknown>) => void) { this.ev = cb; }
   onExit(cb: (c: number, e: string) => void) { this.exit = (c, e) => cb(c, e ?? ""); }
-  say(t: string) { this.calls.push(["say", t]); }
+  say(t: string, i?: { media_type: string; data: string }[]) { this.calls.push(i?.length ? ["say", t, i] : ["say", t]); }
+  setModel(m: string) { this.calls.push(["model", m]); }
+  setMode(m: string) { this.calls.push(["mode", m]); }
   answer(id: string, a: boolean) { this.calls.push(["answer", id, a]); }
   interrupt() { this.calls.push(["interrupt"]); }
   kill() { this.kills++; }
@@ -79,6 +81,7 @@ describe("/chat websocket", () => {
         },
       },
       pty: { open: () => null, killAll: () => {}, isOpen: (s) => ptyBusy.has(s), drop: (s) => void ptyDrops.push(s) },
+      meta: async () => ({ model: "m", used: 1, outputs: [], changes: [] }),
     });
     p = Number(new URL(sv.url).port);
   });
@@ -162,6 +165,34 @@ describe("/chat websocket", () => {
     await until(() => c.calls.length === 4);
     expect(c.calls).toEqual([["say", "hi"], ["answer", "r1", true], ["answer", "r1", false], ["interrupt"]]);
     expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
+  });
+
+  it("GET /api/session/:id/meta needs the token and a known session", async () => {
+    const get = (id: string, t = TOKEN) => fetch(`http://127.0.0.1:${p}/api/session/${id}/meta?token=${t}`);
+    const ok = await get(SID);
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ model: "m", used: 1, outputs: [], changes: [] });
+    expect((await get(SID, "x".repeat(32))).status).toBe(401);
+    expect((await get("49b8e93b-ef21-47c9-b0e5-d293accee304")).status).toBe(404);
+  });
+
+  it("routes images, model and mode; refuses bad ones", async () => {
+    const { ws } = await connect(`session=${SID}`);
+    const c = chat;
+    const png = { media_type: "image/png", data: "iVBORw0KGgo=" };
+    ws.send(JSON.stringify({ t: "say", text: "", images: [png] }));
+    ws.send(JSON.stringify({ t: "say", text: "x", images: [{ media_type: "image/svg+xml", data: "AAAA" }] }));
+    ws.send(JSON.stringify({ t: "say", text: "x", images: [{ media_type: "image/png", data: "not base64!" }] }));
+    ws.send(JSON.stringify({ t: "say", text: "x", images: Array(5).fill(png) }));
+    ws.send(JSON.stringify({ t: "model", model: "claude-opus-5-5" }));
+    ws.send(JSON.stringify({ t: "model", model: "a b; rm" }));
+    ws.send(JSON.stringify({ t: "mode", mode: "plan" }));
+    ws.send(JSON.stringify({ t: "mode", mode: "bypassPermissions" }));
+    ws.send(JSON.stringify({ t: "mode", mode: "auto" }));
+    await until(() => c.calls.length === 4);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(c.calls).toEqual([["say", "", [png]], ["model", "claude-opus-5-5"], ["mode", "plan"], ["mode", "auto"]]);
     ws.close();
   });
 

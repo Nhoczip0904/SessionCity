@@ -91,13 +91,26 @@ function prLine(p: PrRow): HTMLElement {
   return line;
 }
 
-/** The review building's board: open PRs of the repos the sessions work in; Làm mới skips the server's cache. */
-export function renderPrDialog(load: (fresh: boolean) => Promise<RepoPrs[]>): HTMLElement {
-  const body = el("div");
-  const refresh = button("Làm mới", "go", () => void show(true));
-  const root = frame("Bảng PR", refresh, body);
-  const show = async (fresh: boolean) => {
-    body.replaceChildren(el("div", "Đang tải…", "msg"));
+/**
+ * The PR board, a panel pinned to the main screen: open PRs of the repos the sessions work in.
+ * Làm mới skips the server's cache; while on the page it also reloads by itself every `everyMs`, keeping the list up.
+ */
+export function renderPrBoard(load: (fresh: boolean) => Promise<RepoPrs[]>, everyMs = 120_000): HTMLElement {
+  const body = el("div", undefined, "body");
+  const refresh = button("Làm mới", "refresh", () => void show(true));
+  const fold = button("▾", "fold", () => {
+    const folded = root.classList.toggle("folded");
+    fold.textContent = folded ? "▸" : "▾";
+    fold.setAttribute("aria-expanded", String(!folded));
+  });
+  fold.title = "Thu gọn hoặc mở bảng PR";
+  fold.setAttribute("aria-expanded", "true");
+  const root = el("aside", undefined, "");
+  root.id = "prs";
+  root.append(el("div", undefined, "bar"), body);
+  root.firstElementChild!.append(fold, el("b", "Bảng PR"), refresh);
+  const show = async (fresh: boolean, quiet = false) => {
+    if (!quiet) body.replaceChildren(el("div", "Đang tải…", "msg"));
     refresh.disabled = true;
     try {
       const repos = await load(fresh);
@@ -110,11 +123,13 @@ export function renderPrDialog(load: (fresh: boolean) => Promise<RepoPrs[]>): HT
         else body.append(...r.prs.map(prLine));
       }
     } catch {
-      body.replaceChildren(el("div", "Không tải được danh sách PR", "msg"));
+      if (!quiet) body.replaceChildren(el("div", "Không tải được danh sách PR", "msg"));
     } finally {
       refresh.disabled = false;
     }
   };
   void show(false);
+  // shortcut: never cleared, the board lives as long as the page
+  setInterval(() => root.isConnected && void show(false, true), everyMs);
   return root;
 }

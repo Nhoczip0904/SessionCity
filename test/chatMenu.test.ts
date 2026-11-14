@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isChatOpen, openChat, type ChatDeps } from "../src/client/chat.js";
-import { sessionMenu } from "../src/client/chatMenu.js";
+import { SESSION_DRAG, sessionMenu } from "../src/client/chatMenu.js";
 import type { Session } from "../src/shared/types.js";
 
 const s = (id: string, cwd: string, lastActivity: string, status: Session["status"] = "idle", title = id): Session => ({
@@ -55,7 +55,7 @@ class FakeWS {
   send() {}
   close() {}
 }
-const deps = { WebSocket: FakeWS as unknown as typeof WebSocket } as ChatDeps;
+const deps = { WebSocket: FakeWS as unknown as typeof WebSocket, fetch: (async () => ({ ok: false })) as unknown as typeof fetch } as ChatDeps;
 
 describe("chat overlay menu", () => {
   afterEach(() => {
@@ -70,6 +70,35 @@ describe("chat overlay menu", () => {
     expect(side.querySelector('[aria-current="true"]')!.getAttribute("data-id")).toBe("a1");
     side.querySelector<HTMLElement>('[data-id="b1"]')!.click();
     expect(pick).toHaveBeenCalledWith("b1");
+  });
+
+  it("dragging a session from the menu onto a chat box swaps it in, in that box's place", () => {
+    const pick = vi.fn();
+    const menu = { sessions: () => SESSIONS, avatarOf: () => null, pick };
+    openChat({ sessionId: "a1", title: "api", token: "t", onClose: () => {}, menu }, deps);
+    const store: Record<string, string> = {};
+    const dt = { setData: (k: string, v: string) => void (store[k] = v), getData: (k: string) => store[k] ?? "", get types() { return Object.keys(store); }, effectAllowed: "", dropEffect: "" };
+    const fire = (el: Element, type: string) => {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(e, "dataTransfer", { value: dt });
+      el.dispatchEvent(e);
+      return e;
+    };
+    const row = document.querySelector<HTMLElement>('.chat-side [data-id="b1"]')!;
+    expect(row.draggable).toBe(true);
+    fire(row, "dragstart");
+    const box = document.querySelector<HTMLElement>(".chat-box")!;
+    expect(fire(box, "dragover").defaultPrevented).toBe(true); // a drop is allowed here
+    expect(box.classList.contains("dropping")).toBe(true);
+    fire(box, "drop");
+    expect(pick).toHaveBeenCalledWith("b1", "a1");
+    expect(box.classList.contains("dropping")).toBe(false);
+    pick.mockClear();
+    store[SESSION_DRAG] = "<not a session>"; // an id nobody has
+    fire(box, "drop");
+    store[SESSION_DRAG] = "a1"; // the box's own session
+    fire(box, "drop");
+    expect(pick).not.toHaveBeenCalled();
   });
 
   it("has no menu when none is given", () => {

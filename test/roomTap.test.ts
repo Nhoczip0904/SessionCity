@@ -38,12 +38,12 @@ describe("room taps without a preceding hover (Pixi hit testing)", () => {
 });
 
 describe("the review room's diff screen", () => {
-  it("is the PR board: tapping it opens the board", () => {
+  it("is plain decor now: the PR board lives on the main screen, not in the room", () => {
     const onFurniture = vi.fn();
     const root = new Container();
     root.addChild(drawRoom({ indoor: () => Texture.WHITE } as never, ROOM_THEMES.review!, [], ["a"], null, onFurniture));
     tap(new EventBoundary(root), 20, 15); // middle of the left wall panel
-    expect(onFurniture).toHaveBeenLastCalledWith("prs");
+    expect(onFurniture).not.toHaveBeenCalled();
   });
 });
 

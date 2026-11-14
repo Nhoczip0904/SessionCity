@@ -4,7 +4,9 @@ import type { Place } from "./scene.js";
 import { TILE, type buildCity } from "./city.js";
 import { flyPaper, handoffs } from "./handoff.js";
 import { findPath, type Pt } from "./path.js";
-import { randomRoadTile, wanderTarget } from "./roads.js";
+import { fireworks } from "./party.js";
+import { flyPlane } from "./ship.js";
+import { nearestWalkable, randomRoadTile, wanderTarget } from "./roads.js";
 import { nearestHit } from "./rock.js";
 import * as K from "./tiles.js";
 import type { Outfit, Sheets } from "./tiles.js";
@@ -14,6 +16,7 @@ export type PickKind = "session" | "employee";
 const SPEED = 6 / 1000; // tiles per ms
 const MAX_EMPLOYEES = 8;
 const DOWN_MS = 1500;
+const FLY_MS = 700, CHEER_MS = 1200, FLICK_MS = 100, MAX_FLICK = 1.2; // MAX_FLICK: px per ms, ×350 ms = how far a flick carries
 const PALETTE = [0xe6194b, 0x3cb44b, 0xffe119, 0x4363d8, 0xf58231, 0x911eb4, 0x46f0f0, 0xf032e6, 0xbcf60c, 0xfabebe, 0x008080, 0xe6beff];
 const LIVE_TEXT = {
   style: { fontFamily: 'Consolas, "DejaVu Sans Mono", "Courier New", monospace', fontSize: 7, fill: 0xffffff, stroke: { color: 0x111111, width: 2 } },
@@ -89,7 +92,17 @@ interface Actor {
   lane: number; // px to the right of the walking direction
   down?: number; // ms left lying on the ground after a rock hit
   ouch?: Text;
+  cheer?: number; // ms left jumping for joy
+  fly?: { from: Pt; tile: Pt; t: number }; // thrown: pixels it left from, tile it lands on, ms in the air
 }
+
+/** A black-edged yellow square with a black "!", drawn above the Text's origin. */
+export const alertBox = (): Graphics =>
+  new Graphics()
+    .rect(-5, -11, 10, 11).fill(0x000000)
+    .rect(-4, -10, 8, 9).fill(0xffd23f)
+    .rect(-1, -8, 2, 4).fill(0x000000)
+    .rect(-1, -3, 2, 2).fill(0x000000);
 
 export class Actors {
   private mayors = new Map<string, Actor>();
@@ -105,6 +118,7 @@ export class Actors {
   private clock = 0;
   private seenStaff: Map<string, boolean> | null = null;
   private made = 0;
+  private held: { a: Actor; at: Pt; ms: number; v: Pt } | null = null; // v: pointer speed in px/ms
 
   constructor(
     private city: City,
@@ -298,17 +312,20 @@ export class Actors {
         this.mayors.set(id, (m = this.make(hq, "", () => this.onPick("session", id), false)));
         this.dress(m, "mayor", () => this.figure(sl, K.OUTFIT_MAYOR, false));
       }
-      m.label.text = s.project.length > 14 ? s.project.slice(0, 13) + "…" : s.project;
+      const name = s.worktree ? `${s.project}/${s.worktree}` : s.project; // a worktree shows under its repo's name
+      m.label.text = name.length > 14 ? name.slice(0, 13) + "…" : name;
       const badge = s.status === "waiting" ? "!" : s.status === "idle" ? "z" : "";
       if (badge && !m.badge) {
-        m.badge = new Text({ text: "", ...LIVE_TEXT, style: { ...LIVE_TEXT.style, fontSize: 9, fontWeight: "bold" } });
+        m.badge = new Text({ text: "", ...LIVE_TEXT, style: { ...LIVE_TEXT.style, fontSize: 9, fontWeight: "bold", fill: 0x9ad0ff } });
         m.badge.anchor.set(0.5, 1);
         m.badge.y = m.label.y - 8;
+        m.badge.addChild(alertBox());
         m.c.addChild(m.badge);
       }
-      if (m.badge && m.badge.text !== badge) {
-        m.badge.text = badge;
-        if (badge) m.badge.style.fill = badge === "!" ? 0xffd23f : 0x9ad0ff;
+      if (m.badge) {
+        const text = badge === "!" ? "" : badge; // "!" is the square drawn inside, not a letter
+        if (m.badge.text !== text) m.badge.text = text;
+        m.badge.children[0]!.visible = badge === "!";
         m.badge.visible = badge !== "";
       }
       this.setHome(m, this.door(s.district), s.status === "working");
@@ -403,9 +420,68 @@ export class Actors {
 
   /** A rock landed at (x, y) in the layer: whoever it hits falls over, says "Ối!" and gets up again. */
   hit(at: Pt): boolean {
-    const all = [...this.mayors.values(), ...this.staff.values(), ...this.citizens];
-    const a = all[nearestHit(all.map((x) => ({ x: x.c.x, y: x.c.y })), at)];
+    const a = this.nearest(at);
     if (!a) return false;
+    this.knock(a);
+    return true;
+  }
+
+  private nearest(at: Pt): Actor | undefined {
+    const all = [...this.mayors.values(), ...this.staff.values(), ...this.citizens];
+    return all[nearestHit(all.map((x) => ({ x: x.c.x, y: x.c.y })), at)];
+  }
+
+  /** Picks the person under the pointer up; they hang from it until `release`. */
+  grab(at: Pt, ms = 0): boolean {
+    const a = this.nearest(at);
+    if (!a) return false;
+    a.down = a.fly = undefined;
+    a.fig.rotation = 0;
+    if (a.ouch) a.ouch.visible = false;
+    a.path = [];
+    a.c.zIndex = 1e6;
+    this.held = { a, at, ms, v: { x: 0, y: 0 } };
+    this.carry(at, ms);
+    return true;
+  }
+
+  carry(at: Pt, ms: number): void {
+    const h = this.held;
+    if (!h) return;
+    const dt = Math.max(1, ms - h.ms), cap = (v: number) => Math.max(-MAX_FLICK, Math.min(MAX_FLICK, v));
+    h.v = { x: cap((at.x - h.at.x) / dt), y: cap((at.y - h.at.y) / dt) };
+    h.at = at;
+    h.ms = ms;
+    h.a.c.position.set(at.x, at.y + 8); // the pointer holds them mid-body
+  }
+
+  /** Lets go: a moving pointer flings them along, a stopped one just drops them. They land on the nearest walkable tile. */
+  release(ms: number): void {
+    const h = this.held;
+    if (!h) return;
+    this.held = null;
+    const v = ms - h.ms > FLICK_MS ? { x: 0, y: 0 } : h.v;
+    const x = h.at.x + v.x * 350, y = h.at.y + v.y * 350;
+    const tile = nearestWalkable(this.city.walkable, { x: Math.round((x - 8) / TILE), y: Math.round((y + 8 - 14) / TILE) });
+    h.a.fly = { from: { x: h.a.c.x, y: h.a.c.y }, tile, t: 0 };
+  }
+
+  /** A session finished: fireworks over its door, and everyone near it jumps for joy. */
+  /** A plane crosses over the mayor's home. */
+  ship(sessionId: string, kind: "push" | "pr"): void {
+    const home = this.mayors.get(sessionId)?.home;
+    if (home) flyPlane(this.layer, { x: home.x * TILE + 8, y: home.y * TILE - 40 }, kind);
+  }
+
+  cheer(sessionId: string): void {
+    const home = this.mayors.get(sessionId)?.home;
+    if (!home || !this.opts.motion) return;
+    fireworks(this.layer, { x: home.x * TILE + 8, y: home.y * TILE - 16 });
+    for (const a of [...this.mayors.values(), ...this.staff.values(), ...this.citizens])
+      if (Math.hypot(a.tx - home.x, a.ty - home.y) <= 6) a.cheer = CHEER_MS;
+  }
+
+  private knock(a: Actor) {
     a.down = DOWN_MS;
     a.fig.rotation = (a.fig.scale.x < 0 ? -1 : 1) * Math.PI / 2;
     if (!a.ouch) {
@@ -415,13 +491,31 @@ export class Actors {
       a.c.addChild(a.ouch);
     }
     a.ouch.visible = true;
-    return true;
   }
 
   update(dtMs: number): void {
     this.clock += dtMs;
+    if (this.held?.a.c.destroyed) this.held = null;
     const stacks = new Map<number, number>(); // tile key -> actors already standing there
     for (const a of [...this.mayors.values(), ...this.staff.values(), ...this.citizens]) {
+      if (a === this.held?.a) continue;
+      if (a.fly) {
+        const f = a.fly;
+        f.t += dtMs;
+        const s = Math.min(1, f.t / FLY_MS), to = { x: f.tile.x * TILE + 8, y: f.tile.y * TILE + 14 };
+        a.c.x = f.from.x + (to.x - f.from.x) * s;
+        a.c.y = f.from.y + (to.y - f.from.y) * s - Math.sin(Math.PI * s) * 30;
+        a.fig.rotation = s * Math.PI * 4;
+        a.c.zIndex = 1e6;
+        if (s < 1) continue;
+        a.fly = undefined;
+        a.tx = f.tile.x; a.ty = f.tile.y;
+        a.path = [];
+        a.c.position.set(to.x, to.y);
+        a.c.zIndex = to.y;
+        this.knock(a);
+        continue;
+      }
       if (a.down !== undefined) {
         a.down -= dtMs;
         if (a.down > 0) continue; // lying on the ground: no walking
@@ -448,6 +542,11 @@ export class Actors {
         stacks.set(k, i + 1);
         ox = [0, -7, 7][i % 3];
         oy = -Math.floor(i / 3) * 6;
+      }
+      if (a.cheer !== undefined) {
+        a.cheer -= dtMs;
+        if (a.cheer <= 0) a.cheer = undefined;
+        else oy -= Math.abs(Math.sin(a.cheer / 110)) * 5;
       }
       a.c.x = Math.round(a.tx * TILE + 8 + ox);
       a.c.y = Math.round(a.ty * TILE + 14 + oy - bob);
