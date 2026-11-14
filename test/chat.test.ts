@@ -84,6 +84,22 @@ describe("ChatHub", () => {
     ]);
   });
 
+  it("say with images sends them before the text; setModel and setMode are control requests", () => {
+    const { spawn, procs } = fake();
+    const chat = new ChatHub(spawn, "c").open("a", "c")!;
+    chat.say("nhìn này", [{ media_type: "image/png", data: "AAAA" }]);
+    chat.say("", [{ media_type: "image/jpeg", data: "BBBB" }]);
+    chat.setModel("claude-opus-5-5");
+    chat.setMode("plan");
+    const img = (t: string, d: string) => ({ type: "image", source: { type: "base64", media_type: t, data: d } });
+    expect(lines(procs[0].written)).toEqual([
+      { type: "user", message: { role: "user", content: [img("image/png", "AAAA"), { type: "text", text: "nhìn này" }] } },
+      { type: "user", message: { role: "user", content: [img("image/jpeg", "BBBB")] } },
+      { type: "control_request", request_id: "mdl-1", request: { subtype: "set_model", model: "claude-opus-5-5" } },
+      { type: "control_request", request_id: "mode-2", request: { subtype: "set_permission_mode", mode: "plan" } },
+    ]);
+  });
+
   it("pending tracks unanswered can_use_tool ids", async () => {
     const { spawn, procs } = fake();
     const chat = new ChatHub(spawn, "c").open("a", "c")!;
@@ -286,6 +302,31 @@ describe("ChatHub keeps a released chat alive", () => {
     expect(hub.size).toBe(1);
   });
 
+  it("a parked process that is mid-turn is kept, and stopped only once the turn ends and the park time passes", async () => {
+    vi.useFakeTimers();
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c", 3, undefined, 1000);
+    const chat = hub.open("a", "c")!;
+    chat.say("làm đi");
+    chat.release();
+    vi.advanceTimersByTime(5000);
+    expect(procs[0].stdin.writableEnded).toBe(false);
+    procs[0].out.write(JSON.stringify({ type: "result", subtype: "success" }) + "\n");
+    await vi.advanceTimersByTimeAsync(0);
+    vi.advanceTimersByTime(1000);
+    expect(procs[0].stdin.writableEnded).toBe(true);
+  });
+
+  it("a full hub does not evict a parked process that is mid-turn", () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c", 1);
+    const chat = hub.open("a", "c")!;
+    chat.say("làm đi");
+    chat.release();
+    expect(hub.open("b", "c")).toBeNull();
+    expect(procs[0].stdin.writableEnded).toBe(false);
+  });
+
   it("a full hub evicts the oldest parked process; with none parked it refuses", () => {
     const { spawn, procs } = fake();
     const hub = new ChatHub(spawn, "c", 2);
@@ -316,5 +357,33 @@ describe("ChatHub keeps a released chat alive", () => {
     expect(hub.size).toBe(0);
     hub.open("a", "c");
     expect(spawn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("ChatHub permission mode", () => {
+  const resp = (id: string, ok: boolean) => JSON.stringify({ type: "control_response", response: ok ? { subtype: "success", request_id: id } : { subtype: "error", request_id: id, error: "no" } }) + "\n";
+
+  it("a new chat, of any session, is told the mode last chosen, and a fresh process applies it", () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c");
+    const a = hub.open("s", "c")!;
+    a.setMode("auto"); // claude may never answer: the choice is kept anyway
+    a.kill();
+    const b = hub.open("other", "c")!; // another session gets the same mode
+    const got: unknown[] = [];
+    b.onEvent((e) => got.push(e));
+    expect(got).toEqual([{ type: "mode", mode: "auto" }]);
+    expect(lines(procs[1].written)).toEqual([{ type: "control_request", request_id: "mode-1", request: { subtype: "set_permission_mode", mode: "auto" } }]);
+  });
+
+  it("a rejected mode change tells the chat the mode that is really in force", async () => {
+    const { spawn, procs } = fake();
+    const chat = new ChatHub(spawn, "c").open("s", "c")!;
+    const got: any[] = [];
+    chat.onEvent((e) => got.push(e));
+    chat.setMode("auto");
+    procs[0].out.write(resp("mode-1", false));
+    await tick();
+    expect(got.filter((e) => e.type === "mode")).toEqual([{ type: "mode", mode: "default" }]);
   });
 });

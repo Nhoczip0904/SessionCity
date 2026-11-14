@@ -1,7 +1,8 @@
 import { Container, Graphics, Rectangle, Sprite, Text } from "pixi.js";
 import type { Pt } from "./path.js";
-import { LEFT, SPOTS, decorOver, decorUnder, drawJob, type Anim } from "./roomDecor.js";
+import { SPOTS, decorOver, decorUnder, drawJob, type Anim } from "./roomDecor.js";
 import { BOARD_W, BOARD_X, MAX_DESKS, ROOM_COLS, ROOM_ROWS, deskSpots, workJob, type Furniture, type RoomTheme } from "./rooms.js";
+import { drawPapers } from "./paperwork.js";
 import * as K from "./tiles.js";
 import type { Sheets } from "./tiles.js";
 
@@ -181,8 +182,7 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
   }
   leds(root, ledSpots);
   if (theme.decor) decorOver(theme.decor, anim);
-  if (theme.decor === "diff") clickable(root.addChild(new Container()), new Rectangle(LEFT.x, LEFT.y, LEFT.w, LEFT.h), "prs", "Bảng PR");
-  else if (theme.decor && SPOTS[theme.decor]) {
+  if (theme.decor && SPOTS[theme.decor]) {
     const s = SPOTS[theme.decor]!;
     clickable(root.addChild(new Container()), new Rectangle(s.x, s.y, s.w, s.h), "building", s.name);
   }
@@ -191,7 +191,7 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
   const desk = theme.desk ?? { tiles: K.IN_DESK, monitor: true };
   const hall = theme.layout === "hall", lounge = theme.layout === "lounge", work = theme.layout === "site" || theme.layout === "factory" ? theme.layout : null;
   const span = (big: boolean) => (big ? { left: -1, w: 3 } : hall || lounge ? { left: 0, w: 1 } : { left: 0, w: 2 });
-  const station = (x: number, y: number, big: boolean, fig: Container | null, on: boolean, back = false): Container => {
+  const station = (x: number, y: number, big: boolean, fig: Container | null, on: boolean, back = false, working = false): Container => {
     const { w } = span(big), left = x + span(big).left;
     const cx = (left + w / 2) * T;
     const c = new Container();
@@ -236,6 +236,14 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
     // a bit of clutter: papers or a mug beside the screen
     const clutter = (dy: number) => {
       const g = new Graphics();
+      if (working) {
+        // a working session's worker shuffles papers and now and then stamps one
+        const px = left * T + 3, phase = (x * 7 + y * 3) % 16;
+        g.eventMode = "none";
+        g.onRender = () => { g.clear(); drawPapers(g, px, dy, performance.now(), phase); };
+        drawPapers(g, px, dy, 0, phase);
+        return g;
+      }
       if ((x + y) % 2) g.rect(left * T + 4, dy, 7, 5).fill(0xf4f1e8).rect(left * T + 6, dy - 1, 7, 5).fill(0xffffff).stroke({ color: 0xcfc8b8, width: 0.5 });
       else g.rect(left * T + 6, dy, 4, 5).fill(0xe8e8e8).rect(left * T + 10, dy + 1, 1.5, 2).fill(0xe8e8e8).rect(left * T + 6.5, dy + 0.5, 3, 1).fill(0x6b3a1e);
       return g;
@@ -283,7 +291,7 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
     const { w } = span(!!s.big), left = x + span(!!s.big).left;
     const cx = (left + w / 2) * T;
     const back = !!s.at.back;
-    const seat = station(x, y, !!s.big, s.fig && !s.done ? s.fig : null, !s.done, back);
+    const seat = station(x, y, !!s.big, s.fig && !s.done ? s.fig : null, !s.done, back, !s.done && s.badge === "");
     const max = s.big || hall ? 14 : 8; // pod neighbours sit only 2 tiles apart
     const name = s.label.length > max ? s.label.slice(0, max - 1) + "…" : s.label;
     const t = label(s.done ? `✓ ${name}` : `${s.badge ? s.badge + " " : ""}${name}`);

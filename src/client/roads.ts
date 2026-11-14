@@ -73,6 +73,23 @@ export function wanderTarget(walkable: boolean[][], door: Pt, radius: number, ra
   return c.length ? pick(c, rand) : door;
 }
 
+/** The walkable tile closest to `p` (clamped onto the grid, then searched ring by ring); `p` itself when nothing is walkable. */
+export function nearestWalkable(walkable: boolean[][], p: Pt): Pt {
+  const h = walkable.length, w = walkable[0]?.length ?? 0;
+  const q = { x: Math.min(Math.max(p.x, 0), w - 1), y: Math.min(Math.max(p.y, 0), h - 1) };
+  for (let r = 0; r <= Math.max(h, w); r++) {
+    let best: Pt | null = null, bd = Infinity;
+    for (let y = q.y - r; y <= q.y + r; y++)
+      for (let x = q.x - r; x <= q.x + r; x++) {
+        if (Math.max(Math.abs(x - q.x), Math.abs(y - q.y)) !== r || !walkable[y]?.[x]) continue;
+        const d = Math.hypot(x - q.x, y - q.y);
+        if (d < bd) { bd = d; best = { x, y }; }
+      }
+    if (best) return best;
+  }
+  return p;
+}
+
 export function randomRoadTile(walkable: boolean[][], rand: Rand, taken: (p: Pt) => boolean = () => false): Pt {
   const c: Pt[] = [];
   walkable.forEach((row, y) => row.forEach((ok, x) => ok && !taken({ x, y }) && c.push({ x, y })));

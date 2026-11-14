@@ -1,19 +1,26 @@
 import { Application, Assets, Container, Rectangle, Sprite, Texture, TextureStyle, type Graphics } from "pixi.js";
-import type { BuildingData, BuildingId, Employee, RepoPrs, Session, SessionDetail, Shelf } from "../shared/types.js";
+import type { AskRow, BuildingData, BuildingId, Employee, RepoPrs, Session, SessionDetail, Shelf } from "../shared/types.js";
 import { Actors } from "./actors.js";
+import { drawBoats } from "./boats.js";
 import { flyRock } from "./rock.js";
-import { TILE, buildCity } from "./city.js";
+import { ROADS, TILE, buildCity } from "./city.js";
+import { FOREST, drawForest } from "./forest.js";
 import { createHud } from "./hud.js";
-import { confirmDialog, renderLaunchDialog, showDialog, showRules, type ExploreState, type LaunchOpts } from "./launcher.js";
+import { Ships } from "./ship.js";
+import { Finishes, readDone, writeDone } from "./party.js";
+import { confirmDialog, el, frame, renderLaunchDialog, showDialog, showRules, type ExploreState, type LaunchOpts } from "./launcher.js";
+import { Alerts, withAsks } from "./alerts.js";
+import { fillAsks, renderWaiting } from "./asks.js";
+import { JobQueue } from "./queue.js";
+import { renderSummary, summarize } from "./summary.js";
 import { connect } from "./net.js";
 import { ROOM_COLS, ROOM_ROWS, DEFAULT_THEME, OFFICE_THEME, ROOM_THEMES, deskSpots, fileRows, officeLayout, roomOccupants, tokenRows, type Furniture, type RoomTheme } from "./rooms.js";
 import { drawRoom, type Seat } from "./roomDraw.js";
 import { Scene, type Place } from "./scene.js";
-import { renderFilesDialog, renderPrDialog, renderShelfDialog, renderTokenDialog } from "./shelfDialog.js";
+import { renderFilesDialog, renderPrBoard, renderShelfDialog, renderTokenDialog } from "./shelfDialog.js";
 import { flyPaper, handoffs } from "./handoff.js";
-import { isChatOpen, openChat } from "./chat.js";
-import { isTerminalOpen, openTerminal } from "./term.js";
-import { renderBuildingDialog } from "./buildings.js";
+import { openChat } from "./chat.js";
+import { fixPrompt, renderBuildingDialog } from "./buildings.js";
 import { BUSY_CONFIRM, Panel, type Detail, type Kind } from "./panel.js";
 import { loadSheets } from "./tiles.js";
 import { Tooltip, plotAt, presentAt, renderDistrictCard } from "./tooltip.js";
@@ -45,7 +52,8 @@ function lightOverlay(w: number, h: number): Sprite {
   return s;
 }
 
-const PLAZA_KEY = "backendcity.plaza", PHOTO_KEY = "backendcity.photo", AGENTS_KEY = "backendcity.agents";
+const QUEUE_KEY = "backendcity.queue";
+const PLAZA_KEY = "backendcity.plaza", PHOTO_KEY = "backendcity.photo", AGENTS_KEY = "backendcity.agents", DONE_KEY = "backendcity.done";
 // localStorage can be missing or full (private window, blocked site data): the square still works, it just forgets
 const load = (k: string): string | null => {
   try {
@@ -91,6 +99,15 @@ async function main() {
   const W = city.cols * TILE, H = city.rows * TILE;
   // map drawn once into a 2× texture: crisp pixel art and readable baked labels
   const mapTex = app.renderer.generateTexture({ target: city.draw(), frame: new Rectangle(0, 0, W, H), resolution: 2 });
+  // the forest around the city, drawn once: the map above it covers the city itself
+  const cityRows = city.plaza.y / TILE;
+  const forestTex = app.renderer.generateTexture({
+    target: drawForest(sheets, city.cols, city.rows, cityRows, ROADS, city.riverLeft),
+    frame: new Rectangle(-FOREST * TILE, -FOREST * TILE, W + 2 * FOREST * TILE, H + 2 * FOREST * TILE),
+    resolution: 1,
+  });
+  const forest = new Sprite(forestTex);
+  forest.position.set(-FOREST * TILE, -FOREST * TILE);
   const world = new Container();
   const cars = new Container();
   const layer = new Container();
@@ -98,10 +115,12 @@ async function main() {
   const cityH = city.plaza.y;
   const cityTex = new Texture({ source: mapTex.source, frame: new Rectangle(0, 0, W, cityH) });
   const map = new Sprite(mapTex);
-  const light = lightOverlay(W, H);
+  // the light covers the forest too, or its edge would show where the city ends
+  const light = lightOverlay(W + 2 * FOREST * TILE, H + 2 * FOREST * TILE);
+  light.position.set(-FOREST * TILE, -FOREST * TILE);
   const motion = !matchMedia("(prefers-reduced-motion: reduce)").matches;
-  world.addChild(map);
-  if (motion) world.addChild(city.ripples());
+  world.addChild(forest, map);
+  if (motion) world.addChild(city.ripples(), drawBoats(city.riverLeft, city.rows));
   world.addChild(cars);
   if (sheets) world.addChild(light);
   let plazaOn = load(PLAZA_KEY) !== "0";
@@ -141,7 +160,7 @@ async function main() {
     return (await res.json()) as Detail;
   };
   /** JSON call to a token-guarded endpoint → parsed body, or a Vietnamese error message. */
-  const send = async (method: string, path: string, body?: LaunchOpts | { enabled: boolean } | Record<string, never>): Promise<{ state: ExploreState } | string> => {
+  const send = async (method: string, path: string, body?: LaunchOpts | { enabled: boolean } | { session: string; id: string; allow: boolean } | Record<string, never>): Promise<{ state: ExploreState } | string> => {
     let res: Response;
     try {
       res = await fetch(`${path}?token=${encodeURIComponent(token)}`, {
@@ -162,23 +181,83 @@ async function main() {
     return { state: data?.state as ExploreState };
   };
   const panelRoot = document.getElementById("panel")!;
-  const panel = new Panel(panelRoot, fetchDetail, {
-    isOpen: () => (isChatOpen() ? "chat" : isTerminalOpen() ? "terminal" : null),
-    chat: (d) => chatWith(d.id, d.project),
-    terminal: (d) => openTerminal({ sessionId: d.id, title: d.project, token, onClose: () => refreshIfShown(d.id) }),
-    confirm: (t) => confirmDialog(t, "Vẫn mở", "Huỷ"),
-  });
+  const panel = new Panel(panelRoot, fetchDetail);
   let latest: Session[] = []; // the sessions as last synced, for the chat's session menu
-  const chatWith = (id: string, title: string) =>
+  let lastChat: { id: string; title: string } | null = null;
+  const chatWith = (id: string, title: string, replace?: string) => {
+    lastChat = { id, title };
     openChat({
-      sessionId: id, title, token, onClose: () => refreshIfShown(id),
-      menu: { sessions: () => latest, avatarOf: (sid) => avatarOf(sid), pick: (sid) => void (latest.find((x) => x.id === sid) && chatWith(sid, latest.find((x) => x.id === sid)!.project)) },
+      sessionId: id, title, token, replace, onClose: () => refreshIfShown(id),
+      menu: { sessions: () => latest, avatarOf: (sid) => avatarOf(sid), pick: (sid, replace) => void (latest.find((x) => x.id === sid) && chatWith(sid, latest.find((x) => x.id === sid)!.project, replace)) },
     });
+  };
+  // the HUD's Chat button slides the drawer in and out; with no chat open it reopens the last one (else the first session)
+  document.getElementById("btn-chat")?.addEventListener("click", () => {
+    const drawer = document.querySelector(".chat-overlay");
+    if (drawer) return void drawer.classList.toggle("collapsed");
+    const s = lastChat ?? (latest[0] && { id: latest[0].id, title: latest[0].project });
+    if (s) chatWith(s.id, s.title);
+  });
   const refreshIfShown = (id: string) => {
     if (panel.shows("session", id)) void panel.open("session", id);
   };
+  // permission questions of the city's chat processes: a session holding one shows "!" and opens the question first
+  let asks: AskRow[] = [];
+  let asksBody: HTMLElement | null = null;
+  const fillAsksDialog = () => asksBody?.isConnected && fillAsks(asksBody, asks, {
+    label: (sid) => sessions.get(sid)?.title || sessions.get(sid)?.project || sid.slice(0, 8),
+    avatarOf: (sid) => avatarOf(sid),
+    answer: async (a, allow) => {
+      const r = await send("POST", "/api/ask", { session: a.session, id: a.id, allow });
+      return typeof r === "string" ? r : null;
+    },
+    open: (sid) => {
+      asksBody?.closest(".dialog")?.remove();
+      void panel.open("session", sid);
+    },
+  });
+  /** The day so far: drawn at once from the sessions, again when the PR list arrives. */
+  const openSummary = () => {
+    const body = el("div");
+    const root = frame("Tóm tắt hôm nay", body);
+    root.classList.add("wide");
+    const draw = (prs: RepoPrs[] | null) =>
+      body.replaceChildren(renderSummary(summarize(withAsks([...sessions.values()], asks), Date.now(), prs), {
+        avatarOf: (sid) => avatarOf(sid),
+        now: () => Date.now(),
+        queued: queue.size,
+        open: (sid) => (root.remove(), onPick("session", sid)),
+      }));
+    draw(null);
+    showDialog(root);
+    void fetch(`/api/prs?token=${encodeURIComponent(token)}`)
+      .then((r) => (r.ok ? (r.json() as Promise<RepoPrs[]>) : null))
+      .then((prs) => prs && root.isConnected && draw(prs))
+      .catch(() => {});
+  };
+  const openAsks = () => {
+    asksBody = el("div");
+    const root = frame("Cần bạn duyệt", asksBody);
+    root.classList.add("asks");
+    showDialog(root);
+    fillAsksDialog();
+  };
+  /** A session waiting for a reply: show what Claude asked, with the way to answer. */
+  const openWaiting = async (id: string) => {
+    const s = sessions.get(id);
+    const d = await fetchDetail("session", id).catch(() => "gone" as const);
+    const said = d === "gone" || !("chat" in d) ? "" : (d.chat.find((c) => c.role === "claude")?.text ?? "");
+    const root = frame(`${s?.title || s?.project || "Session"} đang chờ bạn`, renderWaiting(said, {
+      chat: () => (root.remove(), chatWith(id, s?.project ?? "")),
+      open: () => (root.remove(), void panel.open("session", id)),
+    }));
+    root.classList.add("asks");
+    showDialog(root);
+  };
   const onPick = (kind: Kind, id: string) => {
     tip.hide();
+    if (kind === "session" && asks.some((a) => a.session === id)) return openAsks();
+    if (kind === "session" && sessions.get(id)?.status === "waiting") return void openWaiting(id);
     void panel.open(kind, id);
   };
   const onEnter = (p: Place) => {
@@ -212,14 +291,29 @@ async function main() {
     plazaOn = on;
     mapH = on ? H : cityH;
     map.texture = on ? mapTex : cityTex;
-    light.height = mapH;
     aim.hitArea = new Rectangle(0, 0, W, mapH);
     cross.show(on);
     layout();
   };
   aim.eventMode = "none";
   aim.cursor = "crosshair";
+  let tool: "rock" | "grab" | null = null;
+  const setTool = (t: "rock" | "grab", armed: boolean) => {
+    tool = armed ? t : tool === t ? null : tool;
+    aim.eventMode = tool ? "static" : "none";
+    aim.cursor = tool === "grab" ? "grab" : "crosshair";
+  };
+  // throw mode: press on a person to pick them up, drag to carry, let go to fling
+  aim.on("pointerdown", (e) => void (tool === "grab" && actors.grab(e.getLocalPosition(layer), e.timeStamp) && (aim.cursor = "grabbing")));
+  aim.on("pointermove", (e) => tool === "grab" && actors.carry(e.getLocalPosition(layer), e.timeStamp));
+  const drop = (e: { timeStamp: number }) => {
+    actors.release(e.timeStamp);
+    if (tool === "grab") aim.cursor = "grab";
+  };
+  aim.on("pointerup", drop);
+  aim.on("pointerupoutside", drop);
   aim.on("pointertap", (e) => {
+    if (tool !== "rock") return;
     const to = e.getLocalPosition(layer);
     flyRock(layer, { x: to.x * 0.6 + W * 0.2, y: mapH }, to, () => void (actors.hit(to) || traffic.hit(to) || cross.hit(to) || ruins.hit(to)));
   });
@@ -234,9 +328,10 @@ async function main() {
 
   const sessions = new Map<string, Session>();
   const employees = new Map<string, Employee>();
-  const openLaunch = (preset?: string) => {
+  const queue = new JobQueue({ get: () => load(QUEUE_KEY), set: (v) => void store(QUEUE_KEY, v) });
+  const openLaunch = (preset?: string, prompt?: string) => {
     const folders = [...new Set([...sessions.values()].map((s) => s.cwd).filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
-    showDialog(renderLaunchDialog(folders, (o) => send("POST", "/api/launch", o).then((r) => (typeof r === "string" ? r : null)), preset || undefined));
+    showDialog(renderLaunchDialog(folders, (o) => send("POST", "/api/launch", o).then((r) => (typeof r === "string" ? r : null)), preset || undefined, prompt, (o) => queue.add(o)));
   };
   const shelfGet = async <T,>(id: string, item?: string): Promise<T> => {
     const res = await fetch(`/api/session/${encodeURIComponent(id)}/shelf${item ? `/${encodeURIComponent(item)}` : ""}?token=${encodeURIComponent(token)}`);
@@ -253,6 +348,9 @@ async function main() {
     }, {
       avatarOf: (sid) => avatarOf(sid),
       now: () => Date.now(),
+      fix: (run) => {
+        openLaunch([...sessions.values()].find((s) => s.project === run.project)?.cwd, fixPrompt(run));
+      },
       chat: (sid) => void (async () => {
         const s = sessions.get(sid);
         if (!s || (s.status !== "idle" && !(await confirmDialog(BUSY_CONFIRM, "Vẫn mở", "Huỷ")))) return;
@@ -260,12 +358,12 @@ async function main() {
       })(),
     }));
   let lastDetail: SessionDetail | null = null; // updated on every show, even when the redraw is skipped
+  document.body.append(renderPrBoard(async (fresh) => {
+    const res = await fetch(`/api/prs?token=${encodeURIComponent(token)}${fresh ? "&fresh=1" : ""}`);
+    if (!res.ok) throw new Error(String(res.status));
+    return (await res.json()) as RepoPrs[];
+  }));
   const furniture = (f: Furniture) => {
-    if (f === "prs") return showDialog(renderPrDialog(async (fresh) => {
-      const res = await fetch(`/api/prs?token=${encodeURIComponent(token)}${fresh ? "&fresh=1" : ""}`);
-      if (!res.ok) throw new Error(String(res.status));
-      return (await res.json()) as RepoPrs[];
-    }));
     const d = lastDetail;
     if (!d) return;
     if (f === "safe") showDialog(renderTokenDialog(tokenRows(d)));
@@ -339,7 +437,8 @@ async function main() {
     },
   });
   const hud = createHud({
-    rock: (armed) => (aim.eventMode = armed ? "static" : "none"),
+    rock: (armed) => setTool("rock", armed),
+    grab: (armed) => setTool("grab", armed),
     plaza: (on) => {
       showPlaza(on);
       store(PLAZA_KEY, on ? "1" : "0");
@@ -357,6 +456,7 @@ async function main() {
         })
         .catch(() => flash("Không đọc được ảnh này — chọn file ảnh khác")),
     launch: () => openLaunch(),
+    summary: () => openSummary(),
     rules: () =>
       void showRules(
         () => send("GET", "/api/agents/explore").then((r) => (typeof r === "string" ? r : r.state)),
@@ -367,9 +467,44 @@ async function main() {
     hud.setHint(text);
     setTimeout(() => hud.setHint(null), 4000);
   };
+  const alerts = new Alerts(
+    {
+      away: () => document.hidden || !document.hasFocus(),
+      notify: (title, body, click) => {
+        if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+        const n = new Notification(title, { body, tag: title });
+        n.onclick = () => (window.focus(), n.close(), click());
+      },
+      title: (t) => void (document.title = t),
+    },
+    document.title,
+  );
+  // browsers only ask for notifications after a click on the page
+  addEventListener("pointerdown", () => typeof Notification !== "undefined" && Notification.permission === "default" && void Notification.requestPermission(), { once: true });
+  const finishes = new Finishes();
+  const ships = new Ships();
+  const today = () => new Date().toLocaleDateString("sv"); // local yyyy-mm-dd
+  let doneToday = readDone(load(DONE_KEY), today());
+  hud.setDone(doneToday);
   const apply = () => {
-    const state = { sessions: [...sessions.values()], employees: [...employees.values()] };
+    const state = { sessions: withAsks([...sessions.values()], asks), employees: [...employees.values()] };
+    alerts.update(state.sessions, asks, (sid) => (asks.some((a) => a.session === sid) ? openAsks() : void panel.open("session", sid)));
+    const job = queue.take(state.sessions);
+    if (job) void send("POST", "/api/launch", job).then((r) => flash(typeof r === "string" ? `Hàng đợi: ${r}` : `Đã mở một việc từ hàng đợi (còn ${queue.size})`));
     actors.sync(state);
+    for (const id of finishes.update(state.sessions)) {
+      actors.cheer(id);
+      doneToday = readDone(load(DONE_KEY), today()) + 1; // re-read: another tab may have counted too
+      store(DONE_KEY, writeDone(today(), doneToday));
+      hud.setDone(doneToday);
+    }
+    for (const sh of ships.update(state.sessions)) {
+      actors.ship(sh.id, sh.kind);
+      const s = state.sessions.find((x) => x.id === sh.id)!;
+      const text = `${sh.kind === "push" ? "Đã push code" : "Đã mở PR"} · ${s.title || s.project}`;
+      flash(`✈ ${text}`);
+      alerts.tell(text, sh.kind === "push" ? "Code vừa được đẩy lên" : "Một pull request vừa được mở", () => void panel.open("session", sh.id));
+    }
     hud.setCounts(state.sessions);
     latest = state.sessions;
     agentList.render(state.sessions, state.employees);
@@ -384,7 +519,7 @@ async function main() {
     const mx = (pointer.clientX - world.x) / world.scale.x, my = (pointer.clientY - world.y) / world.scale.y;
     const plot = plotAt(city.plots, mx, my);
     if (!plot) return tip.hide();
-    const present = presentAt(plot.id, [...sessions.values()], [...employees.values()]);
+    const present = presentAt(plot.id, [...sessions.values()], [...employees.values()], avatarOf);
     tip.show(renderDistrictCard(districtInfo(plot.id), present), pointer.clientX, pointer.clientY, innerWidth, innerHeight);
   };
   app.canvas.addEventListener("pointermove", (e) => {
@@ -423,6 +558,11 @@ async function main() {
     (c) => {
       hud.setConn(c);
       if (c === "auth") hud.setHint(NO_TOKEN);
+    },
+    (a) => {
+      asks = a;
+      apply();
+      fillAsksDialog();
     },
   );
 }

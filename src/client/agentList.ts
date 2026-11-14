@@ -3,6 +3,18 @@ import type { Employee, Session } from "../shared/types.js";
 const ORDER: Record<Session["status"], number> = { working: 0, waiting: 1, idle: 2 };
 const STATUS_TEXT: Record<Session["status"] | Employee["status"], string> = { working: "Đang làm", waiting: "Chờ bạn", idle: "Nghỉ", done: "Xong" };
 
+const byState = (a: Session, b: Session) => ORDER[a.status] - ORDER[b.status] || b.lastActivity.localeCompare(a.lastActivity);
+
+/** Sessions of one repo (its worktrees too) sit together; the repo with the most urgent session comes first. */
+export function grouped(sessions: Session[]): Session[] {
+  const groups = new Map<string, Session[]>();
+  for (const s of sessions) {
+    const key = s.repo || s.cwd || s.id;
+    groups.set(key, [...(groups.get(key) ?? []), s]);
+  }
+  return [...groups.values()].map((g) => g.sort(byState)).sort((a, b) => byState(a[0]!, b[0]!)).flat();
+}
+
 /** The index down the left edge: main agents (sessions), each with its subagents folded under a +N button. */
 export class AgentList {
   private open = new Set<string>(); // sessions whose subagents are shown
@@ -29,13 +41,18 @@ export class AgentList {
 
   render(sessions: Session[], employees: Employee[]): void {
     this.last = [sessions, employees];
-    const sorted = [...sessions].sort((a, b) => ORDER[a.status] - ORDER[b.status] || b.lastActivity.localeCompare(a.lastActivity));
+    const sorted = grouped(sessions);
     const list = document.createElement("ul");
     for (const s of sorted) {
       const li = document.createElement("li");
       const cell = document.createElement("div"); // the tile and its +N corner button
       cell.className = "agent-cell";
-      cell.append(row(`session:${s.id}`, s.status, s.title || s.project, this.avatarOf(s.id)));
+      const r = row(`session:${s.id}`, s.status, s.title || s.project, this.avatarOf(s.id));
+      if (s.worktree) {
+        r.classList.add("wt"); // a worktree of the repo whose tiles sit beside it
+        r.title += ` — worktree ${s.worktree}`;
+      }
+      cell.append(r);
       li.append(cell);
       const subs = employees.filter((e) => e.sessionId === s.id);
       if (subs.length) {
@@ -84,6 +101,12 @@ function row(pick: string, status: Session["status"] | Employee["status"], label
   text.className = "name";
   text.textContent = label;
   b.append(dot);
+  if (status === "waiting") {
+    const bang = document.createElement("span"); // a square "!" (drawn by CSS) in the corner: this one needs you
+    bang.className = "alert";
+    bang.setAttribute("aria-hidden", "true");
+    b.append(bang);
+  }
   if (avatar) {
     const img = document.createElement("img");
     img.className = "ava";

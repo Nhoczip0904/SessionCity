@@ -2,6 +2,8 @@ import type {
   ChatLine, Delta, Employee, EmployeeDetail, Event, Session, SessionDetail, State, TokenCounts, Tokens, ToolStep,
 } from "../shared/types.js";
 import { summarize } from "./summary.js";
+import { shipKind } from "./ship.js";
+import { mainRepo } from "./worktree.js";
 
 const MAX = 4096;
 const STEPS = 100;
@@ -41,7 +43,9 @@ export class Store {
   private dirtyE = new Set<string>();
   private removed: string[] = [];
 
-  constructor(private now: () => number = Date.now) {}
+  private repos = new Map<string, string | null>(); // cwd -> main repo when it is a worktree
+
+  constructor(private now: () => number = Date.now, private repoOf: (cwd: string) => string | null = mainRepo) {}
 
   private session(id: string, at?: string): Session {
     let s = this.sessions.get(id);
@@ -99,8 +103,16 @@ export class Store {
         if (s[k] !== c) { s[k] = c; changed = true; }
       };
       set("title", e.title); set("branch", e.branch); set("cwd", e.cwd);
-      const p = s.cwd.split(/[/\\]/).filter(Boolean).pop() ?? s.id.slice(0, 8);
+      let root = this.repos.get(s.cwd);
+      if (root === undefined && s.cwd) this.repos.set(s.cwd, (root = this.repoOf(s.cwd)));
+      const last = (path: string) => path.split(/[/\\]/).filter(Boolean).pop();
+      const p = (root ? last(root) : last(s.cwd)) ?? s.id.slice(0, 8);
       if (s.project !== p) { s.project = p; changed = true; }
+      const repo = root ?? undefined, wt = root ? last(s.cwd) : undefined;
+      if (s.repo !== repo || s.worktree !== wt) {
+        if (repo) { s.repo = repo; s.worktree = wt; } else { delete s.repo; delete s.worktree; }
+        changed = true;
+      }
       if (changed) this.dirtyS.add(s.id);
       return;
     }
@@ -134,6 +146,8 @@ export class Store {
           s.status = "working";
           if (e.district) s.district = e.district;
         }
+        const ship = e.agentId ? null : shipKind(e.name, e.input);
+        if (ship) { const n = (s.ships ??= { push: 0, pr: 0 }); n[ship]++; }
         steps.push(step);
         if (steps.length > STEPS) steps.shift();
         break;

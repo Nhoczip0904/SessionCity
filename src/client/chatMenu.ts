@@ -1,6 +1,9 @@
 import type { Session } from "../shared/types.js";
 import { el } from "./launcher.js";
 
+/** Dragging a session from the menu carries its id under this type; a chat box takes it. */
+export const SESSION_DRAG = "application/x-city-session";
+
 /** The sessions beside the chat, grouped by folder (newest group and session first); the open one is marked. */
 export function sessionMenu(
   sessions: Session[],
@@ -21,6 +24,11 @@ export function sessionMenu(
       const b = el("button", undefined, "chat-pick");
       b.type = "button";
       b.dataset.id = s.id;
+      b.draggable = true;
+      b.addEventListener("dragstart", (e) => {
+        e.dataTransfer?.setData(SESSION_DRAG, s.id);
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      });
       if (s.id === current) b.setAttribute("aria-current", "true");
       const dot = el("span", undefined, `st ${s.status}`);
       const ava = avatarOf(s.id);

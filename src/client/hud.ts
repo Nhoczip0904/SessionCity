@@ -10,7 +10,7 @@ const CONN_TEXT: Record<Conn, string> = {
 };
 
 export function createHud(
-  on: { launch: () => void; rules: () => void; rock: (armed: boolean) => void; plaza: (shown: boolean) => void; photo: (file: File) => void; agents: (shown: boolean) => void },
+  on: { launch: () => void; summary: () => void; rules: () => void; rock: (armed: boolean) => void; grab: (armed: boolean) => void; plaza: (shown: boolean) => void; photo: (file: File) => void; agents: (shown: boolean) => void },
   plazaOn: boolean,
   agentsOn: boolean,
 ) {
@@ -26,13 +26,21 @@ export function createHud(
     on.agents(shown);
   };
   $("btn-launch").onclick = on.launch;
+  $("btn-summary").onclick = on.summary;
   $("btn-rules").onclick = on.rules;
-  const rock = $("btn-rock");
-  rock.onclick = () => {
-    const armed = rock.getAttribute("aria-pressed") !== "true";
-    rock.setAttribute("aria-pressed", String(armed));
-    on.rock(armed);
-  };
+  // rock and throw are two tools for the same map: arming one puts the other down
+  const tools = [
+    { btn: $("btn-rock"), set: on.rock },
+    { btn: $("btn-grab"), set: on.grab },
+  ];
+  for (const t of tools)
+    t.btn.onclick = () => {
+      const armed = t.btn.getAttribute("aria-pressed") !== "true";
+      t.btn.setAttribute("aria-pressed", String(armed));
+      t.set(armed);
+      if (!armed) return;
+      for (const o of tools) if (o !== t && o.btn.getAttribute("aria-pressed") === "true") { o.btn.setAttribute("aria-pressed", "false"); o.set(false); }
+    };
   const plaza = $("btn-plaza"), photo = $("btn-photo"), file = $("photo-file") as HTMLInputElement;
   const showPlaza = (shown: boolean) => {
     plaza.setAttribute("aria-pressed", String(shown));
@@ -53,6 +61,9 @@ export function createHud(
   return {
     setCounts(sessions: Session[]) {
       for (const k of ["working", "waiting", "idle"] as const) $(`n-${k}`).textContent = String(sessions.filter((s) => s.status === k).length);
+    },
+    setDone(n: number) {
+      $("n-done").textContent = String(n);
     },
     setConn(c: Conn) {
       const dot = $("conn");

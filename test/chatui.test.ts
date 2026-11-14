@@ -21,7 +21,7 @@ class FakeWS {
     this.closed = true;
   }
 }
-const deps = { WebSocket: FakeWS as unknown as typeof WebSocket } as ChatDeps;
+const deps = { WebSocket: FakeWS as unknown as typeof WebSocket, fetch: (async () => ({ ok: false })) as unknown as typeof fetch } as ChatDeps;
 
 function setup() {
   const onClose = vi.fn();
@@ -45,7 +45,7 @@ const asst = (id: string, block: object) => ({ type: "assistant", message: { id,
 const text = (t: string) => ({ type: "text", text: t });
 
 afterEach(() => {
-  document.querySelector<HTMLElement>(".chat-overlay .close")?.click();
+  document.querySelectorAll<HTMLElement>(".chat-overlay .close").forEach((x) => x.click());
   document.querySelector<HTMLElement>(".term-overlay .close")?.click();
   document.body.innerHTML = "";
 });
@@ -169,6 +169,53 @@ describe("openChat", () => {
     textarea().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(sent().at(-1)).toEqual({ t: "stop" });
   });
+  it("a message typed while answering is queued, then sent when the turn ends", () => {
+    const { ev, sent } = setup();
+    say("one");
+    say("two");
+    say("three");
+    expect(sent().map((m) => m.text)).toEqual(["one"]);
+    expect(document.querySelectorAll(".chat-queue .q").length).toBe(2);
+    expect(textarea().value).toBe("");
+    ev({ type: "result", subtype: "success" });
+    expect(sent().map((m) => m.text)).toEqual(["one", "two"]); // one per turn, in order
+    expect(document.querySelectorAll(".chat-queue .q").length).toBe(1);
+    ev({ type: "result", subtype: "success" });
+    expect(sent().map((m) => m.text)).toEqual(["one", "two", "three"]);
+    expect(document.querySelectorAll(".chat-queue .q").length).toBe(0);
+  });
+  it("Gửi ngay sends a queued message into the running turn; ✕ drops one", () => {
+    const { sent } = setup();
+    say("one");
+    say("two");
+    say("three");
+    $(".chat-queue .q .del").click(); // drops "two"
+    $(".chat-queue .q .now").click(); // "three" now
+    expect(sent().map((m) => m.text)).toEqual(["one", "three"]);
+    expect(document.querySelectorAll(".chat-queue .q").length).toBe(0);
+    expect($(".chat-log").textContent).toContain("three");
+    expect($(".chat-log").textContent).not.toContain("two");
+    expect(sendBtn().textContent).toBe("Dừng");
+  });
+  it("after Stop the queue waits instead of sending by itself", () => {
+    const { ev, sent } = setup();
+    say("one");
+    say("two");
+    sendBtn().click();
+    ev({ type: "result", subtype: "error_during_execution", is_error: true, result: "x" });
+    expect(sent().map((m) => m.text).filter(Boolean)).toEqual(["one"]);
+    expect(document.querySelectorAll(".chat-queue .q").length).toBe(1);
+  });
+  it("the button reads Xếp hàng while answering with text typed, else Dừng", () => {
+    setup();
+    say("one");
+    expect(sendBtn().textContent).toBe("Dừng");
+    textarea().value = "next";
+    textarea().dispatchEvent(new Event("input", { bubbles: true }));
+    expect(sendBtn().textContent).toBe("Xếp hàng");
+    sendBtn().click();
+    expect(document.querySelectorAll(".chat-queue .q").length).toBe(1);
+  });
   it("Esc when idle sends nothing and does not reach document", () => {
     const { sent } = setup();
     const seen = vi.fn();
@@ -227,6 +274,71 @@ describe("openChat", () => {
     expect(a.onClose).toHaveBeenCalledTimes(1);
     expect(document.querySelectorAll(".chat-overlay").length).toBe(1);
     expect(b.ws).not.toBe(a.ws);
+  });
+  it("different sessions open as separate windows, no limit", () => {
+    const open = (id: string) => {
+      const onClose = vi.fn();
+      openChat({ sessionId: id, title: id, token: "t", onClose }, deps);
+      return { ws: FakeWS.last, onClose };
+    };
+    const a = open("s1");
+    const b = open("s2");
+    expect(a.ws.closed).toBe(false);
+    expect(document.querySelectorAll(".chat-overlay").length).toBe(1);
+    expect(document.querySelectorAll(".chat-box").length).toBe(2);
+    const c = open("s3");
+    expect(a.ws.closed).toBe(false);
+    expect(b.ws.closed).toBe(false);
+    expect(document.querySelectorAll(".chat-box").length).toBe(3);
+    document.querySelectorAll<HTMLElement>(".chat-box .close")[1]!.click(); // closes s2
+    expect(b.onClose).toHaveBeenCalledTimes(1);
+    expect(c.ws.closed).toBe(false);
+    expect(isChatOpen()).toBe(true);
+    document.querySelectorAll<HTMLElement>(".chat-box .close").forEach((x) => x.click());
+    expect(document.querySelector(".chat-overlay")).toBeNull();
+    expect(isChatOpen()).toBe(false);
+  });
+  it("replace: the new session takes the place of the named chat box, in the same spot", () => {
+    const open = (id: string, replace?: string) => {
+      openChat({ sessionId: id, title: id, token: "t", onClose() {}, replace }, deps);
+      return FakeWS.last;
+    };
+    const a = open("s1");
+    const b = open("s2");
+    const c = open("s3", "s1"); // s1 goes, s3 sits where s1 was (left)
+    expect(a.closed).toBe(true);
+    expect(b.closed).toBe(false);
+    expect([...document.querySelectorAll(".chat-bar > span")].map((s) => s.textContent)).toEqual(["Chat — s3", "Chat — s2"]);
+    open("s2", "s3"); // already open elsewhere: nothing changes
+    expect(c.closed).toBe(false);
+    expect(document.querySelectorAll(".chat-box").length).toBe(2);
+    const only = () => (document.querySelectorAll<HTMLElement>(".chat-box .close").forEach((x) => x.click()), open("s9"));
+    only();
+    open("s8", "s9"); // the only chat replaced
+    expect(document.querySelectorAll(".chat-box").length).toBe(1);
+    expect(document.querySelector(".chat-bar > span")!.textContent).toBe("Chat — s8");
+  });
+  it("Esc stops only the chat it is pressed in", () => {
+    const open = (id: string) => {
+      openChat({ sessionId: id, title: id, token: "t", onClose() {} }, deps);
+      const ws = FakeWS.last;
+      ws.onopen?.();
+      ws.onmessage!({ data: JSON.stringify({ t: "ev", e: { type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "x" } } } }) });
+      ws.onmessage!({ data: JSON.stringify({ t: "ev", e: { type: "result" } }) });
+      return ws;
+    };
+    const a = open("s1");
+    const b = open("s2");
+    const boxes = document.querySelectorAll<HTMLElement>(".chat-box");
+    for (const [i, ws] of [a, b].entries()) {
+      boxes[i]!.querySelector<HTMLTextAreaElement>("textarea")!.value = "go";
+      boxes[i]!.querySelector<HTMLButtonElement>(".chat-send")!.click();
+      expect(ws.sent.length).toBeGreaterThan(0);
+    }
+    a.sent.length = b.sent.length = 0;
+    boxes[0]!.querySelector("textarea")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(a.sent.map((s) => JSON.parse(s).t)).toEqual(["stop"]);
+    expect(b.sent).toEqual([]);
   });
   it("does not open while a terminal is open", () => {
     const term = { cols: 1, rows: 1, open() {}, onData() {}, write() {}, focus() {}, dispose() {}, fit() {} };
@@ -311,5 +423,82 @@ describe("openChat", () => {
     openTerminal({ sessionId: "abc", title: "p", token: "t", onClose: vi.fn() }, { makeTerm, WebSocket: FakeWS as unknown as typeof WebSocket } as unknown as TermDeps);
     expect(makeTerm).not.toHaveBeenCalled();
     expect(document.querySelector(".term-overlay")).toBeNull();
+  });
+});
+
+describe("chat footer", () => {
+  const meta = { model: "claude-sonnet-5-5", used: 126_000, outputs: ["C:/p/out.ts"], changes: [{ repo: "r", files: [{ path: "a.ts", status: "M", add: 4, del: 1 }] }] };
+  const open = async (m: unknown) => {
+    const fetchMock = vi.fn(async (_url: string) => ({ ok: true, json: async () => m }) as Response);
+    openChat({ sessionId: "abc", title: "p", token: "t", onClose() {} }, { ...deps, fetch: fetchMock as unknown as typeof fetch });
+    await new Promise((r) => setTimeout(r, 0));
+    return fetchMock;
+  };
+  it("shows model, context meter, changes and outputs; picking a model or mode sends a frame", async () => {
+    const f = await open(meta);
+    expect(String(f.mock.calls[0]![0])).toBe("/api/session/abc/meta?token=t");
+    expect($<HTMLSelectElement>(".chat-pick").value).toBe("claude-sonnet-5-5");
+    expect($(".chat-meter small").textContent).toBe("63% · 126k/200k");
+    expect($(".chat-meta summary").textContent).toBe("Thay đổi 1 · Kết quả 1");
+    expect($(".chat-meta .chg").textContent).toContain("a.ts");
+    expect($(".chat-meta .out li").textContent).toBe("out.ts");
+    const ws = FakeWS.last;
+    const [model, mode] = Array.from(document.querySelectorAll<HTMLSelectElement>(".chat-pick"));
+    model!.value = "claude-opus-5-5";
+    model!.dispatchEvent(new Event("change"));
+    mode!.value = "plan";
+    mode!.dispatchEvent(new Event("change"));
+    expect(ws.sent.map((s) => JSON.parse(s))).toEqual([{ t: "model", model: "claude-opus-5-5" }, { t: "mode", mode: "plan" }]);
+  });
+  it("offers Tự động but not bypass-permissions as a mode", async () => {
+    await open(meta);
+    const mode = document.querySelectorAll<HTMLSelectElement>(".chat-pick")[1]!;
+    const values = Array.from(mode.options).map((o) => o.value);
+    expect(values).toContain("auto");
+    expect(values).not.toContain("bypassPermissions");
+    mode.value = "auto";
+    mode.dispatchEvent(new Event("change"));
+    expect(JSON.parse(FakeWS.last.sent.at(-1)!)).toEqual({ t: "mode", mode: "auto" });
+  });
+  it("shows the mode the server says is in force, and says so when a change is refused", async () => {
+    await open(null);
+    const mode = document.querySelectorAll<HTMLSelectElement>(".chat-pick")[1]!;
+    FakeWS.last.onmessage!({ data: JSON.stringify({ t: "ev", e: { type: "mode", mode: "auto" } }) });
+    expect(mode.value).toBe("auto");
+    FakeWS.last.onmessage!({ data: JSON.stringify({ t: "ev", e: { type: "control_response", response: { subtype: "error", request_id: "mode-3", error: "không được" } } }) });
+    expect($(".chat-log .err").textContent).toContain("không được");
+  });
+  it("hides what it does not know when the meta cannot be had", async () => {
+    await open(null);
+    expect($<HTMLElement>(".chat-meter").hidden).toBe(true);
+    expect($<HTMLElement>(".chat-meta").hidden).toBe(true);
+    expect($<HTMLElement>(".chat-pick").hidden).toBe(true);
+  });
+  it("an image from the file input goes with the message, and the chips clear", async () => {
+    await open(null);
+    const input = $<HTMLInputElement>(".chat-input input[type=file]");
+    Object.defineProperty(input, "files", { value: [new File([new Uint8Array([1, 2, 3])], "a.png", { type: "image/png" })] });
+    input.dispatchEvent(new Event("change"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.querySelectorAll(".chat-chips .chip").length).toBe(1);
+    sendBtn().click();
+    expect(FakeWS.last.sent.map((s) => JSON.parse(s))).toEqual([{ t: "say", text: "", images: [{ media_type: "image/png", data: "AQID" }] }]);
+    expect(document.querySelectorAll(".chat-chips .chip").length).toBe(0);
+  });
+});
+
+describe("chat title avatar", () => {
+  const open = (face: string | null) =>
+    openChat({ sessionId: "abc", title: "proj", token: "t", onClose: () => {}, menu: { sessions: () => [], avatarOf: () => face, pick: () => {} } }, deps);
+
+  it("shows the mayor's face next to the title", () => {
+    open("data:image/png;base64,AA");
+    expect($<HTMLImageElement>(".chat-bar img.chat-ava").src).toBe("data:image/png;base64,AA");
+    expect($(".chat-bar").textContent).toContain("Chat — proj");
+  });
+
+  it("has no image when the session has no face yet", () => {
+    open(null);
+    expect(document.querySelector(".chat-bar img")).toBeNull();
   });
 });

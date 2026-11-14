@@ -45,32 +45,15 @@ describe("renderSession", () => {
     (el.querySelector("[data-employee]") as HTMLElement).click();
     expect(pick).toHaveBeenCalledWith("work1");
   });
-  it("mini chat replaces the step list: oldest at the top, newest at the bottom, who said it on each line", () => {
-    const chat: ChatLine[] = [
-      { at: "2026-01-01T00:09:00Z", role: "claude", text: "done it" },
-      { at: "2026-01-01T00:08:00Z", role: "user", text: "do it" },
-    ];
-    const el = renderSession(session({ chat, steps: [step(1)] }), NOW, () => {});
-    expect(el.textContent).toContain("Trò chuyện");
-    expect(el.textContent).not.toContain("Hoạt động gần đây");
-    expect(el.querySelectorAll(".step")).toHaveLength(0);
-    const rows = [...el.querySelectorAll(".chat-line")];
-    expect(rows.map((r) => r.className)).toEqual(["chat-line user", "chat-line claude"]);
-    expect(rows[0].textContent).toContain("Bạn");
-    expect(rows[0].textContent).toContain("do it");
-    expect(rows[1].textContent).toContain("Claude");
-    expect(rows[1].textContent).toContain("done it");
-    expect(renderSession(session(), NOW, () => {}).querySelector(".chat")!.textContent).toBe("—");
+  it("the session panel has no chat log and no Chat/Terminal buttons", () => {
+    const el = renderSession(session({ chat: [{ at: "", role: "claude", text: "hi" }], steps: [step(1)] }), NOW, () => {});
+    expect(el.textContent).not.toContain("Trò chuyện");
+    expect(el.querySelector(".chat, .chat-line, button.desktop")).toBeNull();
   });
   it("truncated lastPrompt shows the rút gọn note", () => {
     const el = renderSession(session({ lastPrompt: "abc…" }), NOW, () => {});
     expect(el.querySelector("details")!.textContent).toContain("(đã rút gọn — xem đầy đủ trong transcript)");
     expect(renderSession(session({ lastPrompt: "abc" }), NOW, () => {}).textContent).not.toContain("rút gọn");
-  });
-  it("chat line with empty or unparseable at shows — not Invalid", () => {
-    const el = renderSession(session({ chat: [{ at: "", role: "user", text: "a" }, { at: "garbage", role: "claude", text: "b" }] }), NOW, () => {});
-    expect(el.textContent).not.toContain("Invalid");
-    expect(el.textContent).toContain("—");
   });
   it("<img onerror> in step summary, report and model name stays text", () => {
     const x = "<img src=x onerror=alert(1)>";
@@ -129,67 +112,14 @@ describe("Panel", () => {
     vi.useRealTimers();
   });
 
-  const CONFIRM = "Phiên này có thể đang mở ở chỗ khác (app desktop hoặc terminal). Mở thêm sẽ có hai nơi cùng ghi vào một cuộc trò chuyện.";
-  const setup = async (status: "idle" | "waiting", isOpen: "chat" | "terminal" | null = null, ok = true) => {
-    const root = document.createElement("div");
-    const d = session({ id: "s1", status });
-    const overlays = { isOpen: vi.fn(() => isOpen), chat: vi.fn(), terminal: vi.fn(), confirm: vi.fn().mockResolvedValue(ok) };
-    const p = new Panel(root, vi.fn().mockResolvedValue(d), overlays);
-    await p.open("session", "s1");
-    const btns = [...root.querySelectorAll("button.desktop")] as HTMLButtonElement[];
-    return { root, p, d, overlays, chat: btns[0], term: btns[1], btns };
-  };
-  it("mayor panel shows Chat and Terminal", async () => {
-    const t = await setup("idle");
-    expect(t.btns.map((b) => b.textContent)).toEqual(["Chat", "Terminal"]);
-  });
-  it("working session confirms before either; Huỷ opens nothing; idle opens directly", async () => {
-    for (const [which, fn] of [["chat", "chat"], ["term", "terminal"]] as const) {
-      let t = await setup("waiting", null, false);
-      t[which].click();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(t.overlays.confirm).toHaveBeenCalledWith(CONFIRM);
-      expect(t.overlays[fn]).not.toHaveBeenCalled();
-      t = await setup("waiting", null, true);
-      t[which].click();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(t.overlays[fn]).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
-      t = await setup("idle");
-      t[which].click();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(t.overlays.confirm).not.toHaveBeenCalled();
-      expect(t.overlays[fn]).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
-    }
-  });
-  it("while chat is open both are disabled and Chat reads 'Đang mở chat'", async () => {
-    const t = await setup("idle", "chat");
-    expect(t.btns.map((b) => b.disabled)).toEqual([true, true]);
-    expect(t.chat.textContent).toBe("Đang mở chat");
-    expect(t.term.textContent).toBe("Terminal");
-  });
-  it("while the terminal is open both are disabled and Terminal reads 'Terminal đang mở'", async () => {
-    const t = await setup("idle", "terminal");
-    expect(t.btns.map((b) => b.disabled)).toEqual([true, true]);
-    expect(t.term.textContent).toBe("Terminal đang mở");
-    expect(t.chat.textContent).toBe("Chat");
-  });
   it("shows() tells whether the panel still shows that actor", async () => {
-    const t = await setup("idle");
-    expect(t.p.shows("session", "s1")).toBe(true);
-    expect(t.p.shows("session", "s2")).toBe(false);
-    expect(t.p.shows("employee", "s1")).toBe(false);
-    t.p.close();
-    expect(t.p.shows("session", "s1")).toBe(false);
-  });
-  it("employees get no buttons; neither does a panel without overlays", async () => {
-    const root = document.createElement("div");
-    const p = new Panel(root, vi.fn().mockResolvedValue(employee()), { isOpen: () => null, chat: vi.fn(), terminal: vi.fn(), confirm: vi.fn() });
-    await p.open("employee", "e1");
-    expect(root.querySelector("button.desktop")).toBeNull();
-    expect(renderSession(session(), NOW, () => {}).querySelector("button.desktop")).toBeNull();
-    const r2 = document.createElement("div");
-    await new Panel(r2, vi.fn().mockResolvedValue(session({ id: "s1" }))).open("session", "s1");
-    expect(r2.querySelector("button.desktop")).toBeNull();
+    const p = new Panel(document.createElement("div"), vi.fn().mockResolvedValue(session({ id: "s1" })));
+    await p.open("session", "s1");
+    expect(p.shows("session", "s1")).toBe(true);
+    expect(p.shows("session", "s2")).toBe(false);
+    expect(p.shows("employee", "s1")).toBe(false);
+    p.close();
+    expect(p.shows("session", "s1")).toBe(false);
   });
 
   it("Panel shows ended banner on gone and keeps content", async () => {

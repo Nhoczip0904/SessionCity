@@ -3,7 +3,7 @@ import { ROADS, TILE } from "./city.js";
 import { carPos, gapAhead, inLane, roadGraph, spawnCar, stepCar, type CarState, type RoadGraph } from "./roads.js";
 import { CARS, CARS_DOWN, CARS_UP, type Sheets } from "./tiles.js";
 
-const COUNT = 6;
+const COUNT = 9; // some of them drive off into the forest and come back
 const SCALE = 0.5; // half size, so two cars pass side by side on a 2-tile road
 const MIN_GAP = 1.8; // tiles kept to the car in front (a car is 1.5 tiles long at this scale)
 const MAX_WAIT = 2500; // ms; then drive on anyway, so a jam at a crossing always clears

@@ -11,13 +11,29 @@ import type { Store } from "./store.js";
 import { LaunchInputError, validateLaunch, type LaunchOpts } from "./launch.js";
 import { listShelf, readShelfItem } from "./shelf.js";
 import type { Term } from "./pty.js";
-import type { Chat } from "./chat.js";
+import type { Chat, ChatImage } from "./chat.js";
 import type { HistoryItem } from "./history.js";
-import type { BuildingData, BuildingId, RepoPrs } from "../shared/types.js";
+import type { AskRow, BuildingData, BuildingId, RepoPrs, SessionMeta } from "../shared/types.js";
 import { exploreState, setExplore, UserOwnedError } from "./agents.js";
 
 const MAX_BODY = 16_384;
 const BUILDINGS = new Set<string>(["townhall", "home", "site", "lab", "factory", "airport", "watchtower", "library", "design", "database"]);
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+const MAX_IMAGES = 4;
+const MAX_IMAGE_B64 = 5 * 1024 * 1024; // chars of base64 per image
+const MAX_PAYLOAD = MAX_IMAGES * MAX_IMAGE_B64 + 262144;
+const MODELS = /^[a-z0-9][a-z0-9._-]{0,60}$/i;
+const MODES = new Set(["default", "acceptEdits", "plan", "auto"]);
+const images = (v: unknown): ChatImage[] | null => {
+  if (v === undefined) return [];
+  if (!Array.isArray(v) || v.length > MAX_IMAGES) return null;
+  const out: ChatImage[] = [];
+  for (const i of v) {
+    if (!i || typeof i.media_type !== "string" || !IMAGE_TYPES.has(i.media_type) || typeof i.data !== "string" || i.data.length > MAX_IMAGE_B64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(i.data)) return null;
+    out.push({ media_type: i.media_type, data: i.data });
+  }
+  return out;
+};
 const SESSION_ID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 export const clampSize = (v: string | null, def: number, min: number, max: number): number => {
@@ -67,12 +83,15 @@ export async function startServer(opts: {
   /** open PRs of the sessions' repos; `fresh` skips its cache */
   prs?: (fresh: boolean) => Promise<RepoPrs[]>;
   building?: (id: BuildingId, fresh: boolean) => Promise<BuildingData>;
+  meta?: (sessionId: string) => Promise<SessionMeta>;
+  /** the permission questions waiting in the city's chat processes, and the way to answer one */
+  asks?: { list(): AskRow[]; answer(sessionId: string, id: string, allow: boolean): boolean };
 }): Promise<{ url: string; close(): Promise<void> }> {
   const { token, store } = opts;
   const clientRoot = resolve(opts.clientDir);
   const wss = new WebSocketServer({ noServer: true });
   const ptyWss = new WebSocketServer({ noServer: true, maxPayload: 65536 });
-  const chatWss = new WebSocketServer({ noServer: true, maxPayload: 262144 });
+  const chatWss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
   let origins: string[] = [];
 
   const send = (res: ServerResponse, status: number, body: string, type = "text/plain; charset=utf-8") => {
@@ -160,6 +179,15 @@ export async function startServer(opts: {
     json(res, 202, { ok: true });
   }
 
+  async function askRoute(req: IncomingMessage, res: ServerResponse) {
+    const body = await readJson(req, res);
+    if (body === undefined || res.headersSent) return;
+    const b = body as { session?: unknown; id?: unknown; allow?: unknown } | null;
+    if (typeof b?.session !== "string" || !SESSION_ID.test(b.session) || typeof b.id !== "string" || b.id.length > 200 || typeof b.allow !== "boolean") return json(res, 400, { error: "Dữ liệu không hợp lệ" });
+    if (!opts.asks?.answer(b.session.toLowerCase(), b.id, b.allow)) return json(res, 404, { error: "Câu hỏi này không còn nữa" });
+    json(res, 200, { ok: true });
+  }
+
   async function exploreRoute(req: IncomingMessage, res: ServerResponse) {
     let enabled: boolean | undefined;
     if (req.method === "PUT") {
@@ -199,11 +227,12 @@ export async function startServer(opts: {
       return send(res, 400, "bad request");
     }
     const api = url.pathname.startsWith("/api/");
-    const allowed = url.pathname === "/api/launch" ? ["POST"] : url.pathname === "/api/agents/explore" ? ["GET", "PUT"] : ["GET"];
+    const allowed = url.pathname === "/api/launch" || url.pathname === "/api/ask" ? ["POST"] : url.pathname === "/api/agents/explore" ? ["GET", "PUT"] : ["GET"];
     if (!allowed.includes(req.method ?? "")) return send(res, 405, "method not allowed");
     if (api) {
       if (!tokenOk(token, url.searchParams.get("token"))) return send(res, 401, "unauthorized");
       if (url.pathname === "/api/launch") return void launchRoute(req, res);
+      if (url.pathname === "/api/ask") return void askRoute(req, res);
       if (url.pathname === "/api/agents/explore") return void exploreRoute(req, res);
       if (url.pathname === "/api/prs") {
         const p = opts.prs ? opts.prs(url.searchParams.get("fresh") === "1") : Promise.resolve([]);
@@ -215,6 +244,12 @@ export async function startServer(opts: {
         return void opts.building(bd[1] as BuildingId, url.searchParams.get("fresh") === "1").then((data) => json(res, 200, data), () => json(res, 500, { error: "internal error" }));
       }
       if (url.pathname === "/api/state") return send(res, 200, JSON.stringify(store.snapshot()), TYPES[".json"]);
+      const mt = /^\/api\/session\/([0-9a-f-]{36})\/meta$/i.exec(url.pathname);
+      if (mt) {
+        const sid = mt[1]!.toLowerCase();
+        if (!opts.meta || !SESSION_ID.test(sid) || !store.detailSession(sid)) return json(res, 404, { error: "not found" });
+        return void opts.meta(sid).then((data) => json(res, 200, data), () => json(res, 500, { error: "internal error" }));
+      }
       const sh = /^\/api\/session\/([^/]+)\/shelf(?:\/([^/]+))?$/.exec(url.pathname);
       if (sh) {
         let sid: string, item: string | undefined;
@@ -296,14 +331,17 @@ export async function startServer(opts: {
           q.forEach((f) => f());
         });
         ws.on("message", (raw) => {
-          let m: { t?: unknown; text?: unknown; id?: unknown };
+          let m: { t?: unknown; text?: unknown; id?: unknown; images?: unknown; model?: unknown; mode?: unknown };
           try {
             m = JSON.parse(raw.toString());
           } catch {
             return;
           }
           try {
-            if (m?.t === "say" && typeof m.text === "string" && m.text.length > 0 && m.text.length <= 100000) chat.say(m.text);
+            const imgs = m?.t === "say" ? images(m.images) : [];
+            if (m?.t === "say" && typeof m.text === "string" && m.text.length <= 100000 && imgs && (m.text.length > 0 || imgs.length > 0)) chat.say(m.text, imgs);
+            else if (m?.t === "model" && typeof m.model === "string" && MODELS.test(m.model)) chat.setModel(m.model);
+            else if (m?.t === "mode" && typeof m.mode === "string" && MODES.has(m.mode)) chat.setMode(m.mode);
             else if ((m?.t === "allow" || m?.t === "deny") && typeof m.id === "string" && chat.pending(m.id)) chat.answer(m.id, m.t === "allow");
             else if (m?.t === "stop") chat.interrupt();
           } catch {
@@ -363,6 +401,7 @@ export async function startServer(opts: {
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws.on("error", () => {}); // invalid frame / oversized payload: ws closes the socket itself
       ws.send(JSON.stringify({ type: "state", state: store.snapshot() }));
+      ws.send(JSON.stringify({ type: "asks", asks: opts.asks?.list() ?? [] }));
     });
   });
 
@@ -373,7 +412,17 @@ export async function startServer(opts: {
   const port = (server.address() as AddressInfo).port;
   origins = [`http://127.0.0.1:${port}`, `http://localhost:${port}`];
 
+  let lastAsks = JSON.stringify(opts.asks?.list() ?? []);
   const timers = [
+    setInterval(() => {
+      // questions come and go with the chat processes, not with the transcript: tell the pages when the list changes
+      const asks = JSON.stringify(opts.asks?.list() ?? []);
+      if (asks !== lastAsks) {
+        lastAsks = asks;
+        const m = JSON.stringify({ type: "asks", asks: JSON.parse(asks) });
+        for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(m);
+      }
+    }, 500),
     setInterval(() => {
       const delta = store.drainDelta();
       if (!delta) return;

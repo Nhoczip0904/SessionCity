@@ -1,19 +1,23 @@
 import { Marked } from "marked";
 import type { Session } from "../shared/types.js";
-import { sessionMenu } from "./chatMenu.js";
+import { chatFooter } from "./chatFooter.js";
+import { SESSION_DRAG, sessionMenu } from "./chatMenu.js";
 import { toolBody } from "./chatTools.js";
+import { defaultGeo, floatable, loadGeo, saveGeo, type Geo } from "./chatWin.js";
 import { el } from "./launcher.js";
 import { isTerminalOpen } from "./term.js";
 
 export interface ChatDeps {
   WebSocket: typeof WebSocket;
+  fetch?: typeof fetch;
 }
 
 const MAX_RESULT = 5000;
 const MAX_MAIN = 300;
 const MAX_INPUT = 200; // px: the input stops growing here and scrolls
-let current: (() => void) | null = null;
-export const isChatOpen = () => current !== null;
+const open: { id: string; box: HTMLElement; close: () => void; geo: () => Geo }[] = []; // oldest first
+let shared: HTMLElement | null = null; // the drawer: the session menu and every open chat box
+export const isChatOpen = () => open.length > 0;
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -51,12 +55,20 @@ const mainLine = (input: Record<string, unknown> = {}) =>
   String(input.command ?? input.file_path ?? JSON.stringify(input)).slice(0, MAX_MAIN);
 
 /** `menu`: lets the person hop to another session from beside the chat. */
-export interface ChatMenu { sessions(): Session[]; avatarOf(id: string): string | null; pick(id: string): void }
+export interface ChatMenu { sessions(): Session[]; avatarOf(id: string): string | null; pick(id: string, replace?: string): void }
 
-export function openChat(opts: { sessionId: string; title: string; token: string; onClose: () => void; menu?: ChatMenu }, deps: ChatDeps = defaultDeps): void {
+export function openChat(opts: { sessionId: string; title: string; token: string; onClose: () => void; menu?: ChatMenu; replace?: string }, deps: ChatDeps = defaultDeps): void {
   if (isTerminalOpen()) return;
-  current?.();
-  const root = el("div", undefined, "chat-overlay");
+  // `replace`: the box of that session is swapped for this one, in its spot; a session already open elsewhere stays as it is
+  const old = opts.replace ? open.find((c) => c.id === opts.replace) : undefined;
+  if (old && open.some((c) => c.id === opts.sessionId && c !== old)) return;
+  const slot = old?.box.nextSibling ?? null;
+  const inherited = old?.geo(); // a replacing window takes the old one's place and size
+  // the same session again reopens fresh
+  open.find((c) => c.id === opts.sessionId)?.close();
+  old?.close();
+  const fresh = !shared;
+  const root = (shared ??= el("div", undefined, "chat-overlay"));
   const box = el("div", undefined, "chat-box");
   const bar = el("div", undefined, "chat-bar");
   const x = el("button", "✕", "close");
@@ -69,25 +81,59 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   input.placeholder = "Nhắn cho Claude…";
   const btn = el("button", "Gửi", "chat-send");
   btn.type = "button";
-  form.append(input, btn);
-  bar.append(el("span", `Chat — ${opts.title}`), x);
-  box.append(bar, log, form);
-  if (opts.menu) root.append(sessionMenu(opts.menu.sessions(), opts.sessionId, opts.menu.avatarOf, opts.menu.pick));
-  root.append(box);
-  root.addEventListener("keydown", (e) => e.stopPropagation()); // Esc must not close the panel/scene behind
-  // keep focus in the input: a click on the bar or backdrop would send it to <body>
-  root.addEventListener("mousedown", (e) => {
-    const t = e.target as Node;
-    if (t === x || t === input || log.contains(t) || btn.contains(t) || (t as Element).closest?.(".chat-side")) return;
-    e.preventDefault();
-    input.focus();
-  });
-  document.body.append(root);
-  input.focus();
-
   const q = `token=${encodeURIComponent(opts.token)}&session=${encodeURIComponent(opts.sessionId)}`;
   const ws = new deps.WebSocket(`ws://${location.host}/chat?${q}`);
   const send = (m: object) => ws.send(JSON.stringify(m));
+  const foot = chatFooter({
+    send,
+    note: (t) => note(t, "err"),
+    meta: () =>
+      (deps.fetch ?? globalThis.fetch)(`/api/session/${encodeURIComponent(opts.sessionId)}/meta?token=${encodeURIComponent(opts.token)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+  });
+  form.append(foot.plus, foot.file, input, btn);
+  const name = el("span", `Chat — ${opts.title}`);
+  const face = opts.menu?.avatarOf(opts.sessionId);
+  if (face) {
+    const img = el("img", undefined, "chat-ava");
+    img.src = face;
+    img.alt = ""; // the title next to it says who this is
+    name.prepend(img);
+  }
+  bar.append(name, x);
+  const qbox = el("div", undefined, "chat-queue"); // messages typed while claude answers, waiting their turn
+  box.append(bar, log, foot.panel, foot.chips, qbox, form, foot.bar);
+  const win = floatable(box, bar, inherited ?? loadGeo(opts.sessionId) ?? defaultGeo(open.length, innerWidth, innerHeight), (g) => saveGeo(opts.sessionId, g));
+  if (opts.menu && fresh) root.append(sessionMenu(opts.menu.sessions(), opts.sessionId, opts.menu.avatarOf, opts.menu.pick));
+  root.insertBefore(box, slot && root.contains(slot) ? slot : null);
+  // a session dragged from the menu onto this box takes its place
+  const carrying = (e: DragEvent) => !!opts.menu && !!e.dataTransfer?.types.includes(SESSION_DRAG);
+  box.addEventListener("dragover", (e) => {
+    if (!carrying(e)) return;
+    e.preventDefault(); // allows the drop
+    box.classList.add("dropping");
+  });
+  box.addEventListener("dragleave", (e) => void (e.relatedTarget && box.contains(e.relatedTarget as Node) || box.classList.remove("dropping")));
+  box.addEventListener("drop", (e) => {
+    box.classList.remove("dropping");
+    if (!carrying(e)) return;
+    e.preventDefault();
+    const id = e.dataTransfer!.getData(SESSION_DRAG);
+    if (id !== opts.sessionId && opts.menu!.sessions().some((s) => s.id === id)) opts.menu!.pick(id, opts.sessionId);
+  });
+  box.addEventListener("keydown", (e) => e.stopPropagation()); // Esc must not close the panel/scene behind
+  // keep focus in the input: a click on the bar or backdrop would send it to <body>
+  box.addEventListener("mousedown", (e) => {
+    const t = e.target as Node;
+    if (t === x || t === input || log.contains(t) || btn.contains(t) || (t as Element).closest?.(".chat-side, .chat-extra")) return;
+    e.preventDefault();
+    input.focus();
+  });
+  if (fresh) document.body.append(root);
+  input.focus();
+
+  foot.refresh();
 
   let answering = false;
   let later: any[] | null = null; // a sync that arrived during our own turn
@@ -109,9 +155,12 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   const note = (text: string, cls: string) => add(el("div", text, cls));
   const think = el("div", undefined, "think");
   think.append(el("span", undefined, "dots"), el("span", "Claude đang làm…"));
+  const queue: { text: string; pics: ReturnType<typeof foot.images> }[] = [];
+  // while answering, the button queues what is typed and stops when nothing is
+  const label = () => (btn.textContent = !answering ? "Gửi" : input.value.trim() || foot.images().length ? "Xếp hàng" : "Dừng");
   const setAnswering = (a: boolean) => {
     answering = a;
-    btn.textContent = a ? "Dừng" : "Gửi";
+    label();
     if (a) log.append(think);
     else {
       think.remove();
@@ -193,6 +242,12 @@ export function openChat(opts: { sessionId: string; title: string; token: string
         }
         return;
       }
+      case "mode":
+        if (typeof e.mode === "string") foot.setMode(e.mode);
+        return;
+      case "control_response":
+        if (e.response?.subtype === "error" && /^(mode|mdl)-/.test(String(e.response.request_id))) note(String(e.response.error ?? "Không đổi được"), "err");
+        return;
       case "control_request": {
         const r = e.request;
         if (r?.subtype !== "can_use_tool") return;
@@ -219,15 +274,19 @@ export function openChat(opts: { sessionId: string; title: string; token: string
       case "result": {
         cur = null;
         setAnswering(false);
-        root.querySelectorAll<HTMLButtonElement>(".perm button").forEach((b) => (b.disabled = true)); // unanswered cards are stale
+        box.querySelectorAll<HTMLButtonElement>(".perm button").forEach((b) => (b.disabled = true)); // unanswered cards are stale
         if (e.is_error && e.subtype === "error_during_execution" && stopped) note("Đã dừng", "foot");
         else if (e.is_error) note(String(e.result ?? e.subtype ?? "error"), "err");
         else {
           const parts = [typeof e.duration_ms === "number" ? `${(e.duration_ms / 1000).toFixed(1)}s` : "", typeof e.total_cost_usd === "number" ? `$${e.total_cost_usd.toFixed(4)}` : ""].filter(Boolean);
           if (parts.length) note(parts.join(" \u00b7 "), "foot");
         }
+        const wasStopped = stopped;
         stopped = false;
+        foot.refresh();
         if (later) resync(later);
+        const next = wasStopped || locked ? undefined : queue.shift(); // after Stop the queue waits for the person
+        if (next) (drawQueue(), transmit(next.text, next.pics));
         return;
       }
     }
@@ -286,27 +345,61 @@ export function openChat(opts: { sessionId: string; title: string; token: string
     stopped = true;
     send({ t: "stop" });
   };
-  const submit = () => {
-    if (locked || ws.readyState !== OPEN) return;
-    if (answering) return stop();
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = "";
-    input.style.height = "auto";
-    sent.push(text);
-    hi = sent.length;
-    userMsg(text);
+  const transmit = (text: string, pics: ReturnType<typeof foot.images>) => {
+    if (text) {
+      sent.push(text);
+      hi = sent.length;
+    }
+    userMsg(pics.length ? `${text}${text ? "\n" : ""}\u{1F5BC} ${pics.length} ảnh` : text);
     cur = null;
     stopped = false;
     setAnswering(true);
-    send({ t: "say", text });
+    send(pics.length ? { t: "say", text, images: pics } : { t: "say", text });
+  };
+  const drawQueue = () => {
+    qbox.replaceChildren(
+      ...queue.map((m) => {
+        const row = el("div", undefined, "q");
+        const now = el("button", "Gửi ngay", "now");
+        const del = el("button", "✕", "del");
+        now.type = del.type = "button";
+        now.title = "Gửi vào cuộc trò chuyện ngay, không chờ lượt";
+        del.title = "Bỏ tin này";
+        now.onclick = () => {
+          if (locked || ws.readyState !== OPEN || !queue.includes(m)) return;
+          queue.splice(queue.indexOf(m), 1);
+          drawQueue();
+          transmit(m.text, m.pics);
+        };
+        del.onclick = () => {
+          queue.splice(queue.indexOf(m), 1);
+          drawQueue();
+        };
+        row.append(el("span", m.text || `\u{1F5BC} ${m.pics.length} ảnh`, "qt"), now, del);
+        return row;
+      }),
+    );
+  };
+  const submit = () => {
+    if (locked || ws.readyState !== OPEN) return;
+    const text = input.value.trim();
+    const pics = [...foot.images()]; // a copy: clear() empties the footer's own list
+    if (!text && !pics.length) return answering ? stop() : undefined;
+    input.value = "";
+    input.style.height = "auto";
+    foot.clear();
+    if (!answering) return transmit(text, pics);
+    queue.push({ text, pics });
+    drawQueue();
+    label();
   };
   btn.onclick = submit;
   const grow = () => {
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, MAX_INPUT)}px`;
   };
-  input.addEventListener("input", grow);
+  input.addEventListener("input", () => (grow(), label()));
+  input.addEventListener("paste", foot.paste);
   const recall = (to: number) => {
     hi = to;
     input.value = sent[hi] ?? "";
@@ -316,7 +409,7 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
-      if (!answering) submit();
+      submit();
     } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.isComposing && !e.shiftKey) {
       // earlier messages, like a shell: only when it cannot be a caret move (empty box, caret at the edge, or already browsing)
       const browsing = hi < sent.length && input.value === sent[hi];
@@ -335,19 +428,24 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   const onDocKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
       e.stopPropagation();
-      if (answering && !e.isComposing) stop(); // Esc during IME composition only cancels the composition
+      // pressed in this box, or outside every chat: then the newest chat answers
+      const stray = !(e.target as Element).closest?.(".chat-overlay");
+      const mine = box.contains(e.target as Node) || (stray && open[open.length - 1]?.id === opts.sessionId);
+      if (answering && mine && !e.isComposing) stop(); // Esc during IME composition only cancels the composition
     } else if (!root.contains(e.target as Node)) e.stopPropagation();
   };
   document.addEventListener("keydown", onDocKey, true);
 
   const close = () => {
-    current = null;
+    open.splice(open.findIndex((c) => c.close === close), 1);
     document.removeEventListener("keydown", onDocKey, true);
     ws.onclose = ws.onmessage = null;
     ws.close();
-    root.remove();
+    win.destroy();
+    box.remove();
+    if (!open.length) (root.remove(), (shared = null));
     opts.onClose();
   };
   x.onclick = close;
-  current = close;
+  open.push({ id: opts.sessionId, box, close, geo: win.geo });
 }

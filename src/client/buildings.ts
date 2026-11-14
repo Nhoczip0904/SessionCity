@@ -2,7 +2,20 @@ import type { Alert, BuildingData, BuildingId, ChangedFile, CmdRun, Doc } from "
 import { el, frame } from "./launcher.js";
 
 /** What a board needs from the app: the NPC portrait of a session, a way into its chat, and the clock. */
-export interface BuildingCtx { avatarOf(sessionId: string): string | null; chat(sessionId: string): void; now(): number }
+export interface BuildingCtx { avatarOf(sessionId: string): string | null; chat(sessionId: string): void; now(): number; /** hands a failed command to a new session */ fix?(run: CmdRun): void }
+
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]|\r(?!\n)/g;
+/** The first request of a session sent to fix a failed command; control characters are dropped (the launcher refuses them). */
+export const fixPrompt = (r: CmdRun): string =>
+  `Lệnh này vừa thất bại trong ${r.project}. Tìm nguyên nhân gốc, sửa, rồi chạy lại để xác nhận:\n${r.command}${r.note ? `\nKết quả: ${r.note}` : ""}`.replace(CONTROL, " ").slice(0, 4000);
+const fixButton = (r: CmdRun, ctx: BuildingCtx): HTMLElement | null => {
+  if (!ctx.fix || r.ok !== false) return null;
+  const b = el("button", "Giao agent sửa", "go fix");
+  b.type = "button";
+  b.onclick = () => ctx.fix!(r);
+  return b;
+};
 
 export const TITLES: Record<BuildingId, string> = {
   townhall: "Hộp thư — đang chờ bạn",
@@ -117,6 +130,9 @@ function tubes(d: { runs: CmdRun[] }, ctx: BuildingCtx): HTMLElement {
     rack.append(t);
   }
   root.append(screen, rack, el("div", `${d.runs.filter((r) => r.ok).length}/${d.runs.length} lần gần nhất đạt`, "legend"));
+  const bad = d.runs.find((r) => r.ok === false);
+  const fix = bad && fixButton(bad, ctx);
+  if (fix) root.append(fix);
   return root;
 }
 
@@ -139,6 +155,8 @@ function belt(d: { runs: CmdRun[] }, ctx: BuildingCtx): HTMLElement {
   root.append(track, el("div", undefined, "wheels"), el("div", `${d.runs.length} lần build${avg === null ? "" : ` · trung bình ${seconds(Math.round(avg))}`} · hộp to = build lâu`, "legend"));
   const bad = d.runs.find((r) => r.ok === false);
   if (bad) root.append(el("div", `Lỗi gần nhất: ${bad.note || bad.command}`, "legend bad"));
+  const fix = bad && fixButton(bad, ctx);
+  if (fix) root.append(fix);
   return root;
 }
 
@@ -166,7 +184,9 @@ function departures(d: Extract<BuildingData, { id: "airport" }>, ctx: BuildingCt
       root.append(row([clock(c.at), `${r.repo} › ${c.name} (${c.branch})`, t]));
     }
   }
-  void ctx;
+  const held = d.flights.find((f) => f.ok === false);
+  const fix = held && fixButton(held, ctx);
+  if (fix) root.append(fix);
   return root;
 }
 
