@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Panel, renderEmployee, renderSession } from "../src/client/panel.js";
-import type { ChatLine, Delta, Employee, EmployeeDetail, SessionDetail, Tokens } from "../src/shared/types.js";
+import type { ChatLine, Delta, Employee, EmployeeDetail, PrRow, SessionDetail, Tokens } from "../src/shared/types.js";
 
 const tokens: Tokens = { input: 1200, output: 30, cacheRead: 5, cacheWrite: 7, byModel: { "m-1": { input: 1200, output: 30, cacheRead: 5, cacheWrite: 7 } } };
 const NOW = Date.parse("2026-01-01T00:10:00Z");
@@ -15,6 +15,20 @@ const session = (over: Partial<SessionDetail> = {}): SessionDetail => ({
 });
 const employee = (over: Partial<EmployeeDetail> = {}): EmployeeDetail => ({ ...emp("e1", "working"), models: ["m-1"], steps: [], ...over });
 const step = (i: number) => ({ at: "2026-01-01T00:09:00Z", name: "Read", summary: `step-${i};`, district: "library" as const });
+
+describe("president button", () => {
+  it("appoints and dismisses through the toggle, and the label follows", () => {
+    let on = false;
+    const el = renderSession(session({}), NOW, () => {}, [], { on, toggle: () => (on = !on) });
+    const btn = el.querySelector<HTMLButtonElement>(".crown")!;
+    expect(btn.textContent).toContain("Phong");
+    btn.click();
+    expect(on).toBe(true);
+    expect(btn.textContent).toContain("Bãi nhiệm");
+    btn.click();
+    expect(btn.textContent).toContain("Phong");
+  });
+});
 
 describe("renderSession", () => {
   it("prompt with <script> renders as text", () => {
@@ -31,6 +45,18 @@ describe("renderSession", () => {
     const el = renderSession(session(), NOW, () => {});
     expect(el.textContent).toContain("2 phút trước");
     expect(el.textContent).toContain("Đang làm");
+  });
+  it("lists the PRs on the session's branch as links to GitHub; none, no section", () => {
+    const pr = (n: number, branch: string | null, url: string | null = `https://github.com/o/r/pull/${n}`): PrRow => ({ number: n, title: `T${n}`, url, author: null, branch, draft: false, review: null, ci: null });
+    const el = renderSession(session({ branch: "feat/x" }), NOW, () => {}, [pr(1, "feat/x"), pr(2, "other"), pr(3, "feat/x", null)]);
+    const rows = [...el.querySelectorAll<HTMLElement>(".pr-link")];
+    expect(rows.map((r) => r.textContent)).toEqual(["#1 T1", "#3 T3"]);
+    const a = rows[0] as HTMLAnchorElement;
+    expect([a.tagName, a.href, a.target, a.rel]).toEqual(["A", "https://github.com/o/r/pull/1", "_blank", "noopener noreferrer"]);
+    expect(rows[1]!.tagName).not.toBe("A");
+    expect(el.textContent).toContain("Pull request");
+    expect(renderSession(session({ branch: "feat/x" }), NOW, () => {}, [pr(2, "other")]).textContent).not.toContain("Pull request");
+    expect(renderSession(session({ branch: undefined }), NOW, () => {}, [pr(4, null)]).textContent).not.toContain("Pull request");
   });
   it("session lists working staff before done", () => {
     const staff = [emp("done1", "done"), emp("work1", "working")];

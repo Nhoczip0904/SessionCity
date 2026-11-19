@@ -25,6 +25,15 @@ describe("a rock on a building", () => {
     expect(labels(layer)).not.toContain("ruin");
   });
 
+  it("with a radius, every building the circle touches blows up, not just the one under the point", () => {
+    const layer = new Container();
+    const ruins = new Ruins(layer, [...RECTS, { x: 200, y: 50, w: 80, h: 40 }, { x: 600, y: 50, w: 80, h: 40 }]);
+    expect(ruins.hit({ x: 190, y: 70 }, 20)).toBe(true); // in the gap: touches the first two
+    expect(layer.children.filter((k) => k.label === "ruin")).toHaveLength(2);
+    expect(ruins.hit({ x: 190, y: 70 }, 20)).toBe(false); // both already rubble
+    expect(ruins.hit({ x: 400, y: 300 }, 20)).toBe(false);
+  });
+
   it("a miss hits nothing; a ruined building cannot blow up again until rebuilt", () => {
     const { ruins } = setup();
     expect(ruins.hit({ x: 10, y: 10 })).toBe(false);

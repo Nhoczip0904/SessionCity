@@ -60,7 +60,7 @@ describe("Store", () => {
     s.tick();
     expect(sess(s)).toMatchObject({ status: "idle", district: "home" });
     expect(s.drainDelta()!.sessions.map((x) => x.id)).toEqual(["s1"]);
-    t += 24 * 60 * MIN;
+    t += 7 * 24 * 60 * MIN;
     s.tick();
     expect(s.snapshot().sessions).toEqual([]);
     expect(s.drainDelta()!.removed).toContain("s1");
@@ -131,6 +131,15 @@ describe("Store", () => {
     t += 30_000;
     s.tick();
     expect(s.snapshot().employees).toEqual([]);
+  });
+
+  it("turnEnd while a subagent still works keeps the session working; waits once the last one is done", () => {
+    const s = mk();
+    s.apply(tool("site", { agentId: "a1" }));
+    s.apply({ kind: "turnEnd", sessionId: "s1", at: AT });
+    expect(sess(s).status).toBe("working");
+    s.apply({ kind: "turnEnd", sessionId: "s1", at: AT, agentId: "a1" });
+    expect(sess(s)).toMatchObject({ status: "waiting", district: "townhall" });
   });
 
   it("agent tool event does not flip a waiting session back to working", () => {
@@ -235,9 +244,9 @@ describe("Store", () => {
     expect(sess(s)).toMatchObject({ status: "idle", district: "home" });
   });
 
-  it("replayed events older than 24 h are hidden on first tick", () => {
+  it("replayed events older than 7 days are hidden on first tick", () => {
     const s = mk();
-    const old = new Date(t - 25 * 60 * MIN).toISOString();
+    const old = new Date(t - (7 * 24 + 1) * 60 * MIN).toISOString();
     s.apply({ kind: "tool", sessionId: "s1", at: old, name: "Read", input: {}, district: "lab" });
     s.tick();
     expect(s.snapshot().sessions).toEqual([]);
@@ -247,7 +256,7 @@ describe("Store", () => {
     const s = mk();
     s.apply(usage({ messageId: "m1" }));
     s.apply(spawn());
-    t += 24 * 60 * MIN;
+    t += 7 * 24 * 60 * MIN;
     s.tick();
     expect(s.snapshot().sessions).toEqual([]);
     s.apply(usage({ messageId: "m1" }));
@@ -278,9 +287,9 @@ describe("Store", () => {
     expect(sess(s)).toMatchObject({ status: "idle", district: "home", lastActivity: old });
   });
 
-  it("real replay order, >24 h old: hidden and in removed", () => {
+  it("real replay order, >7 days old: hidden and in removed", () => {
     const s = mk();
-    const old = new Date(t - 25 * 60 * MIN).toISOString();
+    const old = new Date(t - (7 * 24 + 1) * 60 * MIN).toISOString();
     s.apply({ kind: "meta", sessionId: "s1", at: old, cwd: "/a/p" });
     s.apply(usage({ at: old }));
     s.apply({ kind: "tool", sessionId: "s1", at: old, name: "Read", input: {}, district: "lab" });
@@ -422,4 +431,17 @@ describe("Store", () => {
     expect(s.skillsUsed("s1").sort()).toEqual(["plug:x", "tdd"]);
     expect(s.skillsUsed("nope")).toEqual([]);
   });
+
+  it("marks a session as reviewing while pr-review-team runs, labelled by its args or branch", () => {
+    const s = mk();
+    s.apply(tool(null, { name: "Skill", input: { skill: "pr-review-team", args: "#12 Fix login" } }));
+    expect(sess(s).reviewing).toBe("#12 Fix login");
+    s.apply({ kind: "turnEnd", sessionId: "s1", at: AT } as Event);
+    expect(sess(s).reviewing).toBeUndefined();
+    s.apply(tool(null, { name: "Skill", input: { skill: "other" } }));
+    expect(sess(s).reviewing).toBeUndefined();
+    s.apply(tool(null, { name: "Skill", input: { skill: "pr-review-team" } }));
+    expect(sess(s).reviewing).toBe("PR");
+  });
 });
+

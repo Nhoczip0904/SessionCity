@@ -139,7 +139,7 @@ export async function buildingData(id: BuildingId, d: Deps): Promise<BuildingDat
       return { id, items };
     }
     case "home":
-      return { id, items: sessions.filter((s) => s.status === "idle").sort(recent).map((s) => ({ id: s.id, project: s.project, ...(s.title ? { title: s.title } : {}), since: s.lastActivity })) };
+      return { id, items: sessions.slice().sort(recent).slice(0, 10).map((s) => ({ id: s.id, project: s.project, ...(s.title ? { title: s.title } : {}), since: s.lastActivity, status: s.status })) }; // HQ: one room per session, 10 rooms
     case "site":
       return { id, repos: await changes(await roots(), d.exec) };
     case "lab":

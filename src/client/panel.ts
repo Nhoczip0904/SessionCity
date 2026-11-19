@@ -1,5 +1,5 @@
 import { districtInfo } from "../shared/districts.js";
-import type { Delta, Employee, EmployeeDetail, SessionDetail, Session, ToolStep, TokenCounts } from "../shared/types.js";
+import type { Delta, Employee, EmployeeDetail, PrRow, SessionDetail, Session, ToolStep, TokenCounts } from "../shared/types.js";
 
 export type Kind = "session" | "employee";
 export type Detail = SessionDetail | EmployeeDetail;
@@ -70,7 +70,8 @@ function tokenTable(t: { byModel: Record<string, TokenCounts> } & TokenCounts): 
 
 export const BUSY_CONFIRM = "Phiên này có thể đang mở ở chỗ khác (app desktop hoặc terminal). Mở thêm sẽ có hai nơi cùng ghi vào một cuộc trò chuyện.";
 
-export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id: string) => void): HTMLElement {
+/** `prs`: open PRs of the repos; the ones on this session's branch are listed. */
+export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id: string) => void, prs: PrRow[] = [], crown?: { on: boolean; toggle: () => boolean }): HTMLElement {
   const root = el("div", undefined, "detail");
   const head = el("div", undefined, "d-head");
   head.append(el("h2", d.project));
@@ -78,6 +79,13 @@ export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id
   const meta = el("div", undefined, "meta");
   meta.append(badge(d.status), ` ${[d.branch, d.model].filter(Boolean).join(" · ")} · ${ago(now - Date.parse(d.lastActivity))}`);
   head.append(meta);
+  if (crown) {
+    const label = (on: boolean) => (on ? "★ Bãi nhiệm tổng thống" : "★ Phong làm tổng thống");
+    const btn = el("button", label(crown.on), "back crown");
+    btn.type = "button";
+    btn.onclick = () => (btn.textContent = label(crown.toggle()));
+    head.append(btn);
+  }
   root.append(head);
 
   const det = el("details");
@@ -85,7 +93,18 @@ export function renderSession(d: SessionDetail, now: number, onPickEmployee: (id
   det.append(el("summary", "Yêu cầu gần nhất"), el("pre", d.lastPrompt ?? "—"));
   const pn = note(d.lastPrompt ?? "");
   if (pn) det.append(pn);
-  root.append(det, heading("Token"), tokenTable(d.tokens), heading("Nhân viên"));
+  root.append(det);
+  // shortcut: matched by branch name alone, a same-named branch in another repo would show too
+  const mine = d.branch ? prs.filter((p) => p.branch === d.branch) : [];
+  if (mine.length) {
+    root.append(heading("Pull request"));
+    for (const p of mine) {
+      const line = p.url ? el("a", `#${p.number} ${p.title}`, "pr-link") : el("div", `#${p.number} ${p.title}`, "pr-link");
+      if (line instanceof HTMLAnchorElement) Object.assign(line, { href: p.url!, target: "_blank", rel: "noopener noreferrer" });
+      root.append(line);
+    }
+  }
+  root.append(heading("Token"), tokenTable(d.tokens), heading("Nhân viên"));
 
   const staff = [...d.staff].sort((a, b) => Number(b.status === "working") - Number(a.status === "working"));
   if (!staff.length) root.append(el("div", "—", "muted"));
@@ -137,6 +156,8 @@ export class Panel {
   constructor(
     private root: HTMLElement,
     private fetchDetail: (kind: Kind, id: string) => Promise<Detail | "gone">,
+    private prs: () => PrRow[] = () => [],
+    private crown?: { is: (id: string) => boolean; toggle: (id: string) => boolean },
   ) {
     const close = el("button", "✕", "close");
     close.type = "button";
@@ -209,7 +230,7 @@ export class Panel {
     const now = Date.now();
     this.body.replaceChildren(
       c.kind === "session"
-        ? renderSession(res as SessionDetail, now, (id) => void this.open("employee", id))
+        ? renderSession(res as SessionDetail, now, (id) => void this.open("employee", id), this.prs(), this.crown && { on: this.crown.is(c.id), toggle: () => this.crown!.toggle(c.id) })
         : renderEmployee(res as EmployeeDetail, now, () => void this.open("session", (res as EmployeeDetail).sessionId)),
     );
     const det = this.body.querySelector("details");

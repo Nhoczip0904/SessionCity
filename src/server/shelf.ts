@@ -108,6 +108,11 @@ export async function listShelf(cwd: string | undefined, claudeDir: string, used
   return { files, skills: all };
 }
 
+/** Path of a loaded instruction file by id (skills excluded): the only way a client points at a file. */
+export async function shelfFilePath(cwd: string | undefined, claudeDir: string, id: string): Promise<string | null> {
+  return (await discover(cwd, claudeDir)).files.find((f) => f.id === id)?.path ?? null;
+}
+
 export async function readShelfItem(cwd: string | undefined, claudeDir: string, id: string): Promise<{ text: string; truncated: boolean } | null> {
   const { files, skills } = await discover(cwd, claudeDir);
   const path = files.find((f) => f.id === id)?.path ?? skills.find((s) => s.id === id)?.path;

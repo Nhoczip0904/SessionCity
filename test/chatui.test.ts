@@ -25,7 +25,7 @@ const deps = { WebSocket: FakeWS as unknown as typeof WebSocket, fetch: (async (
 
 function setup() {
   const onClose = vi.fn();
-  openChat({ sessionId: "abc", title: "proj", token: "t k", onClose }, deps);
+  openChat({ sessionId: "abc", title: "proj", onClose }, deps);
   const ws = FakeWS.last;
   ws.onopen?.();
   const frame = (m: object) => ws.onmessage!({ data: JSON.stringify(m) });
@@ -53,7 +53,7 @@ afterEach(() => {
 describe("openChat", () => {
   it("builds url, shows title, is open", () => {
     const { ws } = setup();
-    expect(ws.url).toBe(`ws://${location.host}/chat?token=t%20k&session=abc`);
+    expect(ws.url).toBe(`ws://${location.host}/chat?session=abc`);
     expect(document.body.textContent).toContain("Chat — proj");
     expect(isChatOpen()).toBe(true);
   });
@@ -121,6 +121,29 @@ describe("openChat", () => {
     cards[1].querySelectorAll("button")[1].click();
     expect(sent()[1]).toEqual({ t: "deny", id: "r2" });
     expect(cards[1].textContent).toContain("Đã từ chối");
+  });
+  it("AskUserQuestion shows its options and sends the chosen answers with allow", () => {
+    const { ev, sent } = setup();
+    const input = { questions: [{ question: "Tab hay dropdown?", header: "Menu", multiSelect: false, options: [{ label: "Tab", description: "ngang" }, { label: "Dropdown", description: "gọn" }] }] };
+    ev({ type: "control_request", request_id: "q1", request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input, tool_use_id: "t" } });
+    const card = document.querySelector<HTMLElement>(".askq")!;
+    expect(card.textContent).toContain("Tab hay dropdown?");
+    expect(document.querySelector(".perm .allow:not(.aq-send)")).toBeNull(); // no bare Allow
+    card.querySelectorAll<HTMLButtonElement>(".aq-opt")[1]!.click();
+    card.querySelector<HTMLButtonElement>(".aq-send")!.click();
+    expect(sent()).toEqual([{ t: "allow", id: "q1", answers: { "Tab hay dropdown?": "Dropdown" } }]);
+  });
+  it("AskUserQuestion: Skip denies", () => {
+    const { ev, sent } = setup();
+    ev({ type: "control_request", request_id: "q2", request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input: { questions: [{ question: "x?", options: [{ label: "a" }] }] } } });
+    document.querySelector<HTMLButtonElement>(".aq-skip")!.click();
+    expect(sent()).toEqual([{ t: "deny", id: "q2" }]);
+  });
+  it("a malformed AskUserQuestion falls back to the plain permission card", () => {
+    const { ev } = setup();
+    ev({ type: "control_request", request_id: "q3", request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input: { questions: "oops" } } });
+    expect(document.querySelector(".askq")).toBeNull();
+    expect(document.querySelector(".perm")).not.toBeNull();
   });
   it("escapes html and drops unsafe links", () => {
     const { ev } = setup();
@@ -278,7 +301,7 @@ describe("openChat", () => {
   it("different sessions open as separate windows, no limit", () => {
     const open = (id: string) => {
       const onClose = vi.fn();
-      openChat({ sessionId: id, title: id, token: "t", onClose }, deps);
+      openChat({ sessionId: id, title: id, onClose }, deps);
       return { ws: FakeWS.last, onClose };
     };
     const a = open("s1");
@@ -300,7 +323,7 @@ describe("openChat", () => {
   });
   it("replace: the new session takes the place of the named chat box, in the same spot", () => {
     const open = (id: string, replace?: string) => {
-      openChat({ sessionId: id, title: id, token: "t", onClose() {}, replace }, deps);
+      openChat({ sessionId: id, title: id, onClose() {}, replace }, deps);
       return FakeWS.last;
     };
     const a = open("s1");
@@ -320,7 +343,7 @@ describe("openChat", () => {
   });
   it("Esc stops only the chat it is pressed in", () => {
     const open = (id: string) => {
-      openChat({ sessionId: id, title: id, token: "t", onClose() {} }, deps);
+      openChat({ sessionId: id, title: id, onClose() {} }, deps);
       const ws = FakeWS.last;
       ws.onopen?.();
       ws.onmessage!({ data: JSON.stringify({ t: "ev", e: { type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "x" } } } }) });
@@ -342,8 +365,8 @@ describe("openChat", () => {
   });
   it("does not open while a terminal is open", () => {
     const term = { cols: 1, rows: 1, open() {}, onData() {}, write() {}, focus() {}, dispose() {}, fit() {} };
-    openTerminal({ sessionId: "abc", title: "p", token: "t", onClose() {} }, { makeTerm: () => term, WebSocket: FakeWS as unknown as typeof WebSocket } as TermDeps);
-    openChat({ sessionId: "abc", title: "p", token: "t", onClose() {} }, deps);
+    openTerminal({ sessionId: "abc", title: "p", onClose() {} }, { makeTerm: () => term, WebSocket: FakeWS as unknown as typeof WebSocket } as TermDeps);
+    openChat({ sessionId: "abc", title: "p", onClose() {} }, deps);
     expect(document.querySelector(".chat-overlay")).toBeNull();
     expect(isChatOpen()).toBe(false);
   });
@@ -420,7 +443,7 @@ describe("openChat", () => {
   it("openTerminal does nothing while a chat is open", () => {
     setup();
     const makeTerm = vi.fn();
-    openTerminal({ sessionId: "abc", title: "p", token: "t", onClose: vi.fn() }, { makeTerm, WebSocket: FakeWS as unknown as typeof WebSocket } as unknown as TermDeps);
+    openTerminal({ sessionId: "abc", title: "p", onClose: vi.fn() }, { makeTerm, WebSocket: FakeWS as unknown as typeof WebSocket } as unknown as TermDeps);
     expect(makeTerm).not.toHaveBeenCalled();
     expect(document.querySelector(".term-overlay")).toBeNull();
   });
@@ -430,13 +453,13 @@ describe("chat footer", () => {
   const meta = { model: "claude-sonnet-5-5", used: 126_000, outputs: ["C:/p/out.ts"], changes: [{ repo: "r", files: [{ path: "a.ts", status: "M", add: 4, del: 1 }] }] };
   const open = async (m: unknown) => {
     const fetchMock = vi.fn(async (_url: string) => ({ ok: true, json: async () => m }) as Response);
-    openChat({ sessionId: "abc", title: "p", token: "t", onClose() {} }, { ...deps, fetch: fetchMock as unknown as typeof fetch });
+    openChat({ sessionId: "abc", title: "p", onClose() {} }, { ...deps, fetch: fetchMock as unknown as typeof fetch });
     await new Promise((r) => setTimeout(r, 0));
     return fetchMock;
   };
   it("shows model, context meter, changes and outputs; picking a model or mode sends a frame", async () => {
     const f = await open(meta);
-    expect(String(f.mock.calls[0]![0])).toBe("/api/session/abc/meta?token=t");
+    expect(f.mock.calls.map((c) => String(c[0]))).toContain("/api/session/abc/meta");
     expect($<HTMLSelectElement>(".chat-pick").value).toBe("claude-sonnet-5-5");
     expect($(".chat-meter small").textContent).toBe("63% · 126k/200k");
     expect($(".chat-meta summary").textContent).toBe("Thay đổi 1 · Kết quả 1");
@@ -489,7 +512,7 @@ describe("chat footer", () => {
 
 describe("chat title avatar", () => {
   const open = (face: string | null) =>
-    openChat({ sessionId: "abc", title: "proj", token: "t", onClose: () => {}, menu: { sessions: () => [], avatarOf: () => face, pick: () => {} } }, deps);
+    openChat({ sessionId: "abc", title: "proj", onClose: () => {}, menu: { sessions: () => [], avatarOf: () => face, pick: () => {} } }, deps);
 
   it("shows the mayor's face next to the title", () => {
     open("data:image/png;base64,AA");
@@ -500,5 +523,19 @@ describe("chat title avatar", () => {
   it("has no image when the session has no face yet", () => {
     open(null);
     expect(document.querySelector(".chat-bar img")).toBeNull();
+  });
+});
+
+describe("chat folder buttons", () => {
+  it("the console and folder buttons ask the server to open this session's folder", () => {
+    const calls: [string, string][] = [];
+    const f = (async (url: string, init: RequestInit) => (calls.push([url, String(init.body)]), { ok: true })) as unknown as typeof fetch;
+    openChat({ sessionId: "abc", title: "proj", onClose: () => {} }, { ...deps, fetch: f });
+    $<HTMLButtonElement>(".chat-bar .open-cmd").click();
+    $<HTMLButtonElement>(".chat-bar .open-dir").click();
+    expect(calls).toEqual([
+      ["/api/session/abc/open", JSON.stringify({ what: "cmd" })],
+      ["/api/session/abc/open", JSON.stringify({ what: "folder" })],
+    ]);
   });
 });

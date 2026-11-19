@@ -3,6 +3,18 @@ import { el } from "./launcher.js";
 
 export interface Picture { media_type: string; data: string }
 
+/** Thumbnails of the pictures a message was sent with. */
+export function picThumbs(pics: Picture[]): HTMLElement {
+  const row = el("div", undefined, "thumbs");
+  for (const p of pics) {
+    const img = el("img");
+    img.src = `data:${p.media_type};base64,${p.data}`;
+    img.alt = "";
+    row.append(img);
+  }
+  return row;
+}
+
 const MODELS: [string, string][] = [["claude-opus-5-5", "Opus 5.5"], ["claude-sonnet-5-5", "Sonnet 5.5"], ["claude-haiku-5-5", "Haiku 5.5"], ["claude-fable-5-2", "Fable 5.2"]];
 const MODES: [string, string][] = [["default", "Hỏi trước"], ["acceptEdits", "Tự sửa file"], ["plan", "Lập kế hoạch"], ["auto", "Tự động"]];
 const TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];

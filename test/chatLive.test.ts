@@ -20,7 +20,7 @@ class FakeWS {
 const deps = { WebSocket: FakeWS as unknown as typeof WebSocket, fetch: (async () => ({ ok: false })) as unknown as typeof fetch } as ChatDeps;
 
 function setup() {
-  openChat({ sessionId: "abc", title: "proj", token: "t", onClose: () => {} }, deps);
+  openChat({ sessionId: "abc", title: "proj", onClose: () => {} }, deps);
   const ws = FakeWS.last;
   ws.onopen?.();
   const frame = (m: object) => ws.onmessage!({ data: JSON.stringify(m) });

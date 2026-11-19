@@ -9,12 +9,14 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import type { Store } from "./store.js";
 import { LaunchInputError, validateLaunch, type LaunchOpts } from "./launch.js";
-import { listShelf, readShelfItem } from "./shelf.js";
+import { listShelf, readShelfItem, shelfFilePath } from "./shelf.js";
 import type { Term } from "./pty.js";
 import type { Chat, ChatImage } from "./chat.js";
 import type { HistoryItem } from "./history.js";
-import type { AskRow, BuildingData, BuildingId, RepoPrs, SessionMeta } from "../shared/types.js";
+import type { BgJob } from "../shared/types.js";
+import type { AskRow, BuildingData, BuildingId, PrInfo, RepoPrs, SessionMeta } from "../shared/types.js";
 import { exploreState, setExplore, UserOwnedError } from "./agents.js";
+import type { NotesFile } from "./notes.js";
 
 const MAX_BODY = 16_384;
 const BUILDINGS = new Set<string>(["townhall", "home", "site", "lab", "factory", "airport", "watchtower", "library", "design", "database"]);
@@ -24,6 +26,12 @@ const MAX_IMAGE_B64 = 5 * 1024 * 1024; // chars of base64 per image
 const MAX_PAYLOAD = MAX_IMAGES * MAX_IMAGE_B64 + 262144;
 const MODELS = /^[a-z0-9][a-z0-9._-]{0,60}$/i;
 const MODES = new Set(["default", "acceptEdits", "plan", "auto"]);
+/** The chosen answers of an AskUserQuestion (question -> label): a small plain object of strings, else none. */
+const answersOf = (v: unknown): Record<string, string> | undefined => {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return;
+  const e = Object.entries(v);
+  return e.length > 0 && e.length <= 8 && e.every(([k, a]) => k.length <= 2000 && typeof a === "string" && a.length <= 2000) ? Object.fromEntries(e) : undefined;
+};
 const images = (v: unknown): ChatImage[] | null => {
   if (v === undefined) return [];
   if (!Array.isArray(v) || v.length > MAX_IMAGES) return null;
@@ -49,6 +57,14 @@ const TYPES: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".json": "application/json; charset=utf-8",
 };
+
+const COOKIE = "sc";
+
+/** The token the request carries: the cookie the page got on its first visit, else a ?token= (first visit, scripts). */
+function givenToken(req: IncomingMessage, url: URL): string | null {
+  const m = new RegExp(`(?:^|;\s*)${COOKIE}=([^;]*)`).exec(req.headers.cookie ?? "");
+  return m ? m[1]! : url.searchParams.get("token");
+}
 
 export function tokenOk(expected: string, given: string | null): boolean {
   if (given === null) return false;
@@ -78,12 +94,18 @@ export async function startServer(opts: {
   agentsDir: string;
   claudeDir: string;
   launcher: (opts: LaunchOpts) => Promise<void>;
+  /** opens a console or the file manager at a session's folder */
+  opener?: (cwd: string, what: "cmd" | "folder" | "file") => void;
   pty?: { open(sessionId: string, cwd: string, cols: number, rows: number): Term | null; killAll(): void; isOpen(sessionId: string): boolean; drop(sessionId: string): void };
-  chat?: { open(sessionId: string, cwd: string): Chat | null; killAll(): void; isOpen(sessionId: string): boolean; drop(sessionId: string): void; watch(sessionId: string, cb: () => void): () => void; history(sessionId: string): Promise<HistoryItem[]> };
+  chat?: { open(sessionId: string, cwd: string): Chat | null; killAll(): void; isOpen(sessionId: string): boolean; drop(sessionId: string): void; watch(sessionId: string, cb: () => void): () => void; history(sessionId: string): Promise<HistoryItem[]>; jobs?(sessionId: string): Promise<BgJob[]> };
   /** open PRs of the sessions' repos; `fresh` skips its cache */
   prs?: (fresh: boolean) => Promise<RepoPrs[]>;
+  /** the PRs one session opened, with their state */
+  sessionPrs?: (sessionId: string) => Promise<PrInfo[]>;
   building?: (id: BuildingId, fresh: boolean) => Promise<BuildingData>;
   meta?: (sessionId: string) => Promise<SessionMeta>;
+  /** sticky notes kept in a JSON file */
+  notes?: NotesFile;
   /** the permission questions waiting in the city's chat processes, and the way to answer one */
   asks?: { list(): AskRow[]; answer(sessionId: string, id: string, allow: boolean): boolean };
 }): Promise<{ url: string; close(): Promise<void> }> {
@@ -179,6 +201,22 @@ export async function startServer(opts: {
     json(res, 202, { ok: true });
   }
 
+  async function openRoute(req: IncomingMessage, res: ServerResponse, sid: string) {
+    const body = await readJson(req, res);
+    if (body === undefined || res.headersSent) return;
+    const what = (body as { what?: unknown } | null)?.what;
+    if (what !== "cmd" && what !== "folder") return json(res, 400, { error: "Dữ liệu không hợp lệ" });
+    const cwd = store.detailSession(sid)?.cwd; // the session's own folder; the client never names a path
+    if (!opts.opener || !cwd) return json(res, 404, { error: "not found" });
+    if (!isDir(cwd)) return json(res, 409, { error: "Thư mục không còn nữa" });
+    try {
+      opts.opener(cwd, what);
+    } catch {
+      return json(res, 500, { error: "Không mở được" });
+    }
+    json(res, 202, { ok: true });
+  }
+
   async function askRoute(req: IncomingMessage, res: ServerResponse) {
     const body = await readJson(req, res);
     if (body === undefined || res.headersSent) return;
@@ -186,6 +224,20 @@ export async function startServer(opts: {
     if (typeof b?.session !== "string" || !SESSION_ID.test(b.session) || typeof b.id !== "string" || b.id.length > 200 || typeof b.allow !== "boolean") return json(res, 400, { error: "Dữ liệu không hợp lệ" });
     if (!opts.asks?.answer(b.session.toLowerCase(), b.id, b.allow)) return json(res, 404, { error: "Câu hỏi này không còn nữa" });
     json(res, 200, { ok: true });
+  }
+
+  async function notesRoute(req: IncomingMessage, res: ServerResponse) {
+    if (!opts.notes) return json(res, 404, { error: "not found" });
+    try {
+      if (req.method === "GET") return json(res, 200, { notes: opts.notes.read() });
+      const body = await readJson(req, res);
+      if (body === undefined || res.headersSent) return;
+      const notes = (body as { notes?: unknown } | null)?.notes;
+      if (!Array.isArray(notes)) return json(res, 400, { error: "Dữ liệu không hợp lệ" });
+      json(res, 200, { notes: opts.notes.write(notes) });
+    } catch {
+      if (!res.headersSent) json(res, 500, { error: "Không đọc/ghi được ghi chú" });
+    }
   }
 
   async function exploreRoute(req: IncomingMessage, res: ServerResponse) {
@@ -219,6 +271,19 @@ export async function startServer(opts: {
     }
   }
 
+  /** Shows a loaded instruction file in Explorer. The id comes from the shelf listing; the path never comes from the client. */
+  async function shelfOpenRoute(res: ServerResponse, sessionId: string, itemId: string) {
+    try {
+      const cwd = store.detailSession(sessionId)?.cwd || undefined;
+      const path = opts.opener && store.detailSession(sessionId) ? await shelfFilePath(cwd, opts.claudeDir, itemId) : null;
+      if (!path) return json(res, 404, { error: "not found" });
+      opts.opener!(path, "file");
+      json(res, 202, { ok: true });
+    } catch {
+      if (!res.headersSent) json(res, 500, { error: "Không mở được" });
+    }
+  }
+
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     let url: URL;
     try {
@@ -227,13 +292,21 @@ export async function startServer(opts: {
       return send(res, 400, "bad request");
     }
     const api = url.pathname.startsWith("/api/");
-    const allowed = url.pathname === "/api/launch" || url.pathname === "/api/ask" ? ["POST"] : url.pathname === "/api/agents/explore" ? ["GET", "PUT"] : ["GET"];
+    const allowed = url.pathname === "/api/launch" || url.pathname === "/api/ask" || /^\/api\/session\/[^/]+\/(?:open|shelf\/[^/]+\/open)$/.test(url.pathname) ? ["POST"] : url.pathname === "/api/agents/explore" || url.pathname === "/api/notes" ? ["GET", "PUT"] : ["GET"];
     if (!allowed.includes(req.method ?? "")) return send(res, 405, "method not allowed");
     if (api) {
-      if (!tokenOk(token, url.searchParams.get("token"))) return send(res, 401, "unauthorized");
+      if (!tokenOk(token, givenToken(req, url))) return send(res, 401, "unauthorized");
       if (url.pathname === "/api/launch") return void launchRoute(req, res);
       if (url.pathname === "/api/ask") return void askRoute(req, res);
+      if (url.pathname === "/api/notes") return void notesRoute(req, res);
+      const op = /^\/api\/session\/([0-9a-f-]{36})\/open$/i.exec(url.pathname);
+      if (op) return void openRoute(req, res, op[1]!.toLowerCase());
       if (url.pathname === "/api/agents/explore") return void exploreRoute(req, res);
+      const sp = /^\/api\/session\/([0-9a-f-]{36})\/prs$/i.exec(url.pathname);
+      if (sp) {
+        const p = opts.sessionPrs ? opts.sessionPrs(sp[1]!.toLowerCase()) : Promise.resolve([]);
+        return void p.then((list) => json(res, 200, list), () => json(res, 500, { error: "internal error" }));
+      }
       if (url.pathname === "/api/prs") {
         const p = opts.prs ? opts.prs(url.searchParams.get("fresh") === "1") : Promise.resolve([]);
         return void p.then((list) => json(res, 200, list), () => json(res, 500, { error: "internal error" }));
@@ -249,6 +322,16 @@ export async function startServer(opts: {
         const sid = mt[1]!.toLowerCase();
         if (!opts.meta || !SESSION_ID.test(sid) || !store.detailSession(sid)) return json(res, 404, { error: "not found" });
         return void opts.meta(sid).then((data) => json(res, 200, data), () => json(res, 500, { error: "internal error" }));
+      }
+      const so = /^\/api\/session\/([^/]+)\/shelf\/([0-9a-f]{16})\/open$/.exec(url.pathname);
+      if (so) {
+        let sid: string;
+        try {
+          sid = decodeURIComponent(so[1]!);
+        } catch {
+          return json(res, 400, { error: "bad request" });
+        }
+        return void shelfOpenRoute(res, sid, so[2]!);
       }
       const sh = /^\/api\/session\/([^/]+)\/shelf(?:\/([^/]+))?$/.exec(url.pathname);
       if (sh) {
@@ -274,6 +357,12 @@ export async function startServer(opts: {
       }
       return send(res, 404, "not found");
     }
+    // first visit via the printed link: keep the token in an HttpOnly cookie and drop it from the address bar
+    if (url.searchParams.has("token") && tokenOk(token, url.searchParams.get("token"))) {
+      url.searchParams.delete("token");
+      res.writeHead(302, { Location: url.pathname + url.search, "Set-Cookie": `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/` });
+      return void res.end();
+    }
     void serveStatic(url.pathname, res);
   });
 
@@ -289,7 +378,7 @@ export async function startServer(opts: {
       return socket.destroy();
     }
     if (url.pathname !== "/ws" && url.pathname !== "/pty" && url.pathname !== "/chat") return reject(404, "Not Found");
-    if (!tokenOk(token, url.searchParams.get("token"))) return reject(401, "Unauthorized");
+    if (!tokenOk(token, givenToken(req, url))) return reject(401, "Unauthorized");
     const origin = req.headers.origin;
     if (!origin || !origins.includes(origin)) return reject(403, "Forbidden");
     if (url.pathname === "/chat") {
@@ -319,19 +408,34 @@ export async function startServer(opts: {
         chat.onEvent((e) => run(() => out({ t: "ev", e })));
         chat.onExit((code, err) => run(() => ws.close(4000, reason(code, err))));
         // the transcript also grows from other windows on this session: send it again when it changes
-        const unwatch = hub.watch(sid, () => void hub.history(sid).catch((): HistoryItem[] => []).then((items) => run(() => out({ t: "history", items, sync: true }))));
+        let sentJobs = "[]"; // only a change is sent, so a chat with no background job gets no frame
+        const sendJobs = () =>
+          void (hub.jobs?.(sid) ?? Promise.resolve([]))
+            .catch((): BgJob[] => [])
+            .then((jobs) =>
+              run(() => {
+                const j = JSON.stringify(jobs);
+                if (j !== sentJobs) out({ t: "jobs", jobs });
+                sentJobs = j;
+              }),
+            );
+        const unwatch = hub.watch(sid, () => {
+          void hub.history(sid).catch((): HistoryItem[] => []).then((items) => run(() => out({ t: "history", items, sync: true })));
+          sendJobs();
+        });
         ws.on("close", () => {
           unwatch();
           chat.release(); // the process stays parked for the next open
         });
         void hub.history(sid).catch((): HistoryItem[] => []).then((items) => {
           out({ t: "history", items });
+          sendJobs();
           const q = queue!;
           queue = null;
           q.forEach((f) => f());
         });
         ws.on("message", (raw) => {
-          let m: { t?: unknown; text?: unknown; id?: unknown; images?: unknown; model?: unknown; mode?: unknown };
+          let m: { t?: unknown; text?: unknown; id?: unknown; images?: unknown; model?: unknown; mode?: unknown; answers?: unknown };
           try {
             m = JSON.parse(raw.toString());
           } catch {
@@ -342,7 +446,7 @@ export async function startServer(opts: {
             if (m?.t === "say" && typeof m.text === "string" && m.text.length <= 100000 && imgs && (m.text.length > 0 || imgs.length > 0)) chat.say(m.text, imgs);
             else if (m?.t === "model" && typeof m.model === "string" && MODELS.test(m.model)) chat.setModel(m.model);
             else if (m?.t === "mode" && typeof m.mode === "string" && MODES.has(m.mode)) chat.setMode(m.mode);
-            else if ((m?.t === "allow" || m?.t === "deny") && typeof m.id === "string" && chat.pending(m.id)) chat.answer(m.id, m.t === "allow");
+            else if ((m?.t === "allow" || m?.t === "deny") && typeof m.id === "string" && chat.pending(m.id)) chat.answer(m.id, m.t === "allow", m.t === "allow" ? answersOf(m.answers) : undefined);
             else if (m?.t === "stop") chat.interrupt();
           } catch {
             // the process may have exited; the 4000 close follows

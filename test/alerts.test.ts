@@ -87,6 +87,13 @@ describe("fillAsks", () => {
     body.querySelectorAll("button")[1]!.click();
     expect(answer).toHaveBeenLastCalledWith(ask("a"), false);
   });
+  it("a question for the user (AskUserQuestion) has no bare Allow: answering happens in the chat", () => {
+    const body = document.createElement("div");
+    fillAsks(body, [{ ...ask("a"), tool: "AskUserQuestion", summary: "Tab hay dropdown?" }], ctx());
+    const labels = [...body.querySelectorAll("button")].map((b) => b.textContent);
+    expect(labels).toEqual(["Từ chối", "Xem phiên"]);
+    expect(body.textContent).toContain("Trả lời trong chat");
+  });
   it("a failed answer shows the message and lets the user try again", async () => {
     const body = document.createElement("div");
     fillAsks(body, [ask("a")], ctx(async () => "Câu hỏi này không còn nữa"));

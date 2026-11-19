@@ -24,7 +24,7 @@ const defaultDeps: TermDeps = {
   WebSocket: globalThis.WebSocket,
 };
 
-export function openTerminal(opts: { sessionId: string; title: string; token: string; onClose: () => void }, deps: TermDeps = defaultDeps): void {
+export function openTerminal(opts: { sessionId: string; title: string; onClose: () => void }, deps: TermDeps = defaultDeps): void {
   if (isChatOpen()) return;
   current?.();
   const root = el("div", undefined, "term-overlay");
@@ -51,7 +51,7 @@ export function openTerminal(opts: { sessionId: string; title: string; token: st
   term.fit();
   term.focus();
 
-  const q = `token=${encodeURIComponent(opts.token)}&session=${encodeURIComponent(opts.sessionId)}&cols=${term.cols}&rows=${term.rows}`;
+  const q = `session=${encodeURIComponent(opts.sessionId)}&cols=${term.cols}&rows=${term.rows}`;
   const ws = new deps.WebSocket(`ws://${location.host}/pty?${q}`);
   let live = false;
   const send = (m: object) => ws.send(JSON.stringify(m));

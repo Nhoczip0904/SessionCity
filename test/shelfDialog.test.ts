@@ -57,6 +57,16 @@ describe("renderShelfDialog", () => {
     expect(d.querySelector("pre")).toBeNull();
     expect(d.textContent).toContain("File nạp sẵn");
   });
+  it("each loaded file has an Open button that reveals it without opening the text view", async () => {
+    const reveal = vi.fn();
+    const d = renderShelfDialog(async () => shelf, async () => ({ text: "x", truncated: false }), reveal);
+    await tick();
+    const btns = d.querySelectorAll<HTMLElement>(".reveal");
+    expect(btns).toHaveLength(2); // files only, not skills
+    btns[1].click();
+    expect(reveal).toHaveBeenCalledWith("f2");
+    expect(d.querySelector("pre")).toBeNull();
+  });
   it("empty and error", async () => {
     const a = renderShelfDialog(async () => ({ files: [], skills: [] }), async () => ({ text: "", truncated: false }));
     await tick();

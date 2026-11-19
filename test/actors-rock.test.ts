@@ -37,6 +37,27 @@ describe("a rock hit", () => {
     expect(mayor.children.some((k) => "text" in k && k.text === "Ối!" && k.visible)).toBe(false);
   });
 
+  it("with a radius, a person near but not under it is knocked over too", () => {
+    const { actors, mayor } = setup();
+    expect(actors.hit({ x: mayor.x + 30, y: mayor.y - 8 })).toBe(false); // a rock misses
+    expect(actors.hit({ x: mayor.x + 30, y: mayor.y - 8 }, 40)).toBe(true); // a bolt's blast reaches
+    expect(Math.abs(mayor.children[0].rotation)).toBeCloseTo(Math.PI / 2);
+  });
+
+  it("a bolt chars the person black until they get up; a rock does not", () => {
+    const { actors, mayor } = setup();
+    const fig = mayor.children[0];
+    actors.hit({ x: mayor.x, y: mayor.y - 8 });
+    expect(fig.tint).toBe(0xffffff);
+    actors.update(2000);
+    actors.hit({ x: mayor.x, y: mayor.y - 8 }, 40);
+    expect(fig.tint).toBeLessThan(0x333333);
+    actors.update(1000);
+    expect(fig.tint).toBeLessThan(0x333333); // still charred while down
+    actors.update(1000);
+    expect(fig.tint).toBe(0xffffff);
+  });
+
   it("a rock on empty ground hits nobody", () => {
     const { actors, mayor } = setup();
     expect(actors.hit({ x: mayor.x + 200, y: mayor.y + 200 })).toBe(false);

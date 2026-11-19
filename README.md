@@ -47,9 +47,9 @@ Mỗi phiên là một **thị trưởng** đi lại giữa các khu theo việc
 - **Ghi chú.** Nút 📌 Ghi chú dán giấy lên màn hình (tài khoản test, việc cần nhớ).
   - Lưu ở `~/.sessioncity/notes.json`, có thể sửa tay, màn hình tự cập nhật sau vài giây.
   - Mỗi note có cờ `pinned`: chỉ note đã ghim hiện trên màn hình, nút ☰ liệt kê tất cả để ghim hoặc bỏ ghim.
-  - Kéo cả tờ giấy thả vào khung chat để chèn nội dung vào ô nhập.
+  - Nắm biểu tượng ✉ ở góc trên trái của tờ giấy, kéo thả vào khung chat để chèn nội dung vào ô nhập.
 - **Tóm tắt.** Nút 📋 cho biết hôm nay đã làm gì và còn gì dang dở.
-- **Quảng trường giải trí.** Treo ảnh lên thánh giá giữa quảng trường rồi chọi đá. Bật/tắt và đổi ảnh từ thanh công cụ.
+- **Công viên giải trí.** Công viên dưới thành phố luôn có sẵn để chọi đá.
 
 ## Yêu cầu
 
@@ -180,9 +180,8 @@ Ghi chú lưu ở `~/.sessioncity/notes.json` và là file JSON bạn có thể 
 - Vào **toà review** để xem bảng PR đang mở của các repo mà phiên đang làm. Cần `gh auth login` trước.
 - **📋 Tóm tắt** cho biết hôm nay đã làm gì và còn gì dang dở.
 
-### 8. Quảng trường và trò chơi
+### 8. Công viên và trò chơi
 
-- **⛪ Quảng trường** bật hoặc tắt quảng trường; **🖼 Đổi ảnh** đổi ảnh treo trên thánh giá.
 - Menu **🎯 Trò chơi** chọn một trò rồi bấm lên bản đồ: **🪨 Chọi đá** (đá người đi đường, đá trúng toà nhà thì nổ rồi được dựng lại), **🤸 Ném người** (kéo một người lên rồi thả tay), **⚡ Sét đánh** (sét đánh xuống chỗ bấm). Bấm lại nút để tắt.
 
 ### 9. Xử lý sự cố

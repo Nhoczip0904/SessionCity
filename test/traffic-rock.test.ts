@@ -3,7 +3,7 @@ import { Container, Texture } from "pixi.js";
 import { describe, expect, it } from "vitest";
 import { Traffic } from "../src/client/traffic.js";
 
-const sheets = { city: () => Texture.WHITE } as never;
+const sheets = { city: () => Texture.WHITE, char: () => Texture.WHITE } as never;
 
 describe("a rock on a car", () => {
   const setup = () => {
@@ -23,6 +23,18 @@ describe("a rock on a car", () => {
     expect(car.visible).toBe(false);
     traffic.update(2500);
     expect(car.visible).toBe(true);
+  });
+
+  it("with a radius, every car inside it is wrecked, none outside", () => {
+    const { traffic, layer } = setup();
+    const cars = layer.children.filter((c) => c.label !== "boom");
+    const [a, b] = cars as [Container, Container];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    expect(traffic.hit({ x: a.x, y: a.y }, 0.5)).toBe(true);
+    expect(a.visible).toBe(false);
+    if (d > 0.5) expect(b.visible).toBe(true);
+    expect(traffic.hit({ x: a.x, y: a.y }, d + 1)).toBe(true); // wide enough for b too
+    expect(b.visible).toBe(false);
   });
 
   it("a rock on empty road hits no car; a wrecked car cannot be hit again", () => {

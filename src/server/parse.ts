@@ -80,6 +80,7 @@ export function parseLine(line: string, ctx: LineContext, rules: Rule[]): Event[
       const input = u.input;
       const ev: Event = { kind: "tool", sessionId, at, name, input, district: classify(rules, name, input) };
       if (agentId) ev.agentId = agentId;
+      if (typeof u.id === "string") ev.toolUseId = u.id;
       out.push(ev);
       if ((name === "Agent" || name === "Task") && typeof u.id === "string") {
         const i = isObj(input) ? input : {};

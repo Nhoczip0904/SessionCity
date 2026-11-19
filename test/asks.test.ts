@@ -54,6 +54,17 @@ describe("ChatHub asks", () => {
     expect(hub.answerAsk("a", "r1", true)).toBe(false); // already answered
   });
 
+  it("AskUserQuestion: the chosen answers go back inside updatedInput, next to the questions", async () => {
+    const { spawn, procs } = fake();
+    const hub = new ChatHub(spawn, "c");
+    const chat = hub.open("a", "c")!;
+    const input = { questions: [{ question: "Tab hay dropdown?", header: "Menu", multiSelect: false, options: [{ label: "Tab", description: "" }, { label: "Dropdown", description: "" }] }] };
+    procs[0]!.out.write(ask("r1", "AskUserQuestion", input));
+    await tick();
+    chat.answer("r1", true, { "Tab hay dropdown?": "Tab" });
+    expect(sent(procs[0]!.written)[0].response.response).toEqual({ behavior: "allow", updatedInput: { ...input, answers: { "Tab hay dropdown?": "Tab" } } });
+  });
+
   it("deny sends a refusal; a wrong session or id answers nothing", async () => {
     const { spawn, procs } = fake();
     const hub = new ChatHub(spawn, "c");
@@ -83,6 +94,7 @@ describe("askSummary", () => {
     expect(askSummary({ command: "ls  -la\nfoo" })).toBe("ls -la foo");
     expect(askSummary({ file_path: "D:/x/y.ts", content: "zzz" })).toBe("D:/x/y.ts");
     expect(askSummary({ a: 1 })).toBe('{"a":1}');
+    expect(askSummary({ questions: [{ question: "Tab  hay\ndropdown?", options: [] }] })).toBe("Tab hay dropdown?");
     expect(askSummary(undefined).length).toBeLessThan(5);
     expect(askSummary({ command: "x".repeat(500) })).toHaveLength(200);
   });

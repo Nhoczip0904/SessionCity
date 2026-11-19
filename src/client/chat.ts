@@ -1,7 +1,13 @@
 import { Marked } from "marked";
+import { NOTE_DRAG } from "../shared/notes.js";
 import type { Session } from "../shared/types.js";
-import { chatFooter } from "./chatFooter.js";
-import { SESSION_DRAG, sessionMenu } from "./chatMenu.js";
+import { blurSlider } from "./chatBlur.js";
+import { chatFooter, picThumbs } from "./chatFooter.js";
+import { shelfStrip } from "./chatShelf.js";
+import { staffStrip } from "./chatStaff.js";
+import { jobStrip } from "./chatJobs.js";
+import { SESSION_DRAG, markOpen, sessionMenu } from "./chatMenu.js";
+import { questionsOf, renderQuestions } from "./askQuestion.js";
 import { toolBody } from "./chatTools.js";
 import { defaultGeo, floatable, loadGeo, saveGeo, type Geo } from "./chatWin.js";
 import { el } from "./launcher.js";
@@ -57,7 +63,7 @@ const mainLine = (input: Record<string, unknown> = {}) =>
 /** `menu`: lets the person hop to another session from beside the chat. */
 export interface ChatMenu { sessions(): Session[]; avatarOf(id: string): string | null; pick(id: string, replace?: string): void }
 
-export function openChat(opts: { sessionId: string; title: string; token: string; onClose: () => void; menu?: ChatMenu; replace?: string }, deps: ChatDeps = defaultDeps): void {
+export function openChat(opts: { sessionId: string; title: string; onClose: () => void; menu?: ChatMenu; replace?: string }, deps: ChatDeps = defaultDeps): void {
   if (isTerminalOpen()) return;
   // `replace`: the box of that session is swapped for this one, in its spot; a session already open elsewhere stays as it is
   const old = opts.replace ? open.find((c) => c.id === opts.replace) : undefined;
@@ -81,14 +87,14 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   input.placeholder = "Nhắn cho Claude…";
   const btn = el("button", "Gửi", "chat-send");
   btn.type = "button";
-  const q = `token=${encodeURIComponent(opts.token)}&session=${encodeURIComponent(opts.sessionId)}`;
+  const q = `session=${encodeURIComponent(opts.sessionId)}`;
   const ws = new deps.WebSocket(`ws://${location.host}/chat?${q}`);
   const send = (m: object) => ws.send(JSON.stringify(m));
   const foot = chatFooter({
     send,
     note: (t) => note(t, "err"),
     meta: () =>
-      (deps.fetch ?? globalThis.fetch)(`/api/session/${encodeURIComponent(opts.sessionId)}/meta?token=${encodeURIComponent(opts.token)}`)
+      (deps.fetch ?? globalThis.fetch)(`/api/session/${encodeURIComponent(opts.sessionId)}/meta`)
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
   });
@@ -101,22 +107,56 @@ export function openChat(opts: { sessionId: string; title: string; token: string
     img.alt = ""; // the title next to it says who this is
     name.prepend(img);
   }
-  bar.append(name, x);
+  // open a console / the file manager at this session's folder; the server picks the path itself
+  const tool = (cls: string, label: string, title: string, what: "cmd" | "folder") => {
+    const b = el("button", label, `minb ${cls}`);
+    b.type = "button";
+    b.title = title;
+    b.onclick = () => void (deps.fetch ?? globalThis.fetch)(`/api/session/${encodeURIComponent(opts.sessionId)}/open`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ what }) }).then((r) => r.ok || note(`Không mở được (${r.status})`, "err"), () => note("Không mở được", "err"));
+    return b;
+  };
+  const more = el("div", undefined, "chat-more"); // dropdown: blur slider, open cmd, open folder
+  const menu = el("div", undefined, "chat-more-menu");
+  menu.hidden = true;
+  menu.append(blurSlider(), tool("open-cmd", ">_", "Mở cmd tại thư mục của chat này", "cmd"), tool("open-dir", "📁", "Mở thư mục của chat này", "folder"));
+  const dots = el("button", "⋯", "minb");
+  dots.type = "button";
+  dots.title = "Độ mờ, mở cmd, mở thư mục";
+  dots.onclick = () => (menu.hidden = !menu.hidden);
+  more.append(dots, menu);
+  document.addEventListener("pointerdown", (e) => void (more.contains(e.target as Node) || (menu.hidden = true)), true); // shortcut: listener stays until reload, when many chats open
+  bar.append(name, more, x);
+  const jobs = jobStrip();
   const qbox = el("div", undefined, "chat-queue"); // messages typed while claude answers, waiting their turn
-  box.append(bar, log, foot.panel, foot.chips, qbox, form, foot.bar);
+  const side = el("div", undefined, "chat-drawers"); // right-edge drawers: bookshelf (files) over medicine cabinet (tests)
+  const edge = el("button", undefined, "chat-edge"); // arrow on the right edge of the chat: hides / shows the panel
+  edge.type = "button";
+  edge.title = "Ẩn / hiện bảng bên phải";
+  edge.onclick = () => box.classList.toggle("no-side");
+  side.append(shelfStrip(opts.sessionId, deps.fetch), jobs.el);
+  box.append(bar, log, side, edge, staffStrip(opts.sessionId), foot.panel, foot.chips, qbox, form, foot.bar);
   const win = floatable(box, bar, inherited ?? loadGeo(opts.sessionId) ?? defaultGeo(open.length, innerWidth, innerHeight), (g) => saveGeo(opts.sessionId, g));
   if (opts.menu && fresh) root.append(sessionMenu(opts.menu.sessions(), opts.sessionId, opts.menu.avatarOf, opts.menu.pick));
   root.insertBefore(box, slot && root.contains(slot) ? slot : null);
   // a session dragged from the menu onto this box takes its place
   const carrying = (e: DragEvent) => !!opts.menu && !!e.dataTransfer?.types.includes(SESSION_DRAG);
+  // a sticky note dragged from the city drops its text into the input
+  const noteDrag = (e: DragEvent) => !!e.dataTransfer?.types.includes(NOTE_DRAG);
   box.addEventListener("dragover", (e) => {
-    if (!carrying(e)) return;
+    if (!carrying(e) && !noteDrag(e)) return;
     e.preventDefault(); // allows the drop
+    if (noteDrag(e)) e.dataTransfer!.dropEffect = "copy"; // the note offers "copy" only; any other effect makes the browser refuse the drop
     box.classList.add("dropping");
   });
   box.addEventListener("dragleave", (e) => void (e.relatedTarget && box.contains(e.relatedTarget as Node) || box.classList.remove("dropping")));
   box.addEventListener("drop", (e) => {
     box.classList.remove("dropping");
+    if (noteDrag(e)) {
+      e.preventDefault(); // not the browser's own insert, which would only work over the textarea
+      input.value += (input.value && !/\s$/.test(input.value) ? " " : "") + e.dataTransfer!.getData("text/plain");
+      input.focus();
+      return;
+    }
     if (!carrying(e)) return;
     e.preventDefault();
     const id = e.dataTransfer!.getData(SESSION_DRAG);
@@ -126,7 +166,7 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   // keep focus in the input: a click on the bar or backdrop would send it to <body>
   box.addEventListener("mousedown", (e) => {
     const t = e.target as Node;
-    if (t === x || t === input || log.contains(t) || btn.contains(t) || (t as Element).closest?.(".chat-side, .chat-extra")) return;
+    if (t === x || t === input || log.contains(t) || btn.contains(t) || (t as Element).closest?.(".chat-side, .chat-extra, .blur-range")) return;
     e.preventDefault();
     input.focus();
   });
@@ -187,7 +227,11 @@ export function openChat(opts: { sessionId: string; title: string; token: string
     add(b.box);
     return b;
   };
-  const userMsg = (text: string) => add(el("div", text, "msg user"));
+  const userMsg = (text: string, pics: ReturnType<typeof foot.images> = []) => {
+    const m = el("div", text, "msg user");
+    if (pics.length) m.append(picThumbs(pics));
+    add(m);
+  };
   const toolRow = (name: string, summary: string, inp?: Record<string, unknown>) => {
     const d = el("details", undefined, "tool");
     const s = el("summary");
@@ -252,6 +296,11 @@ export function openChat(opts: { sessionId: string; title: string; token: string
         const r = e.request;
         if (r?.subtype !== "can_use_tool") return;
         const id = String(e.request_id);
+        const qs = r.tool_name === "AskUserQuestion" ? questionsOf(r.input) : null;
+        if (qs) {
+          add(renderQuestions(qs, (answers) => send({ t: "allow", id, answers }), () => send({ t: "deny", id })));
+          return;
+        }
         const card = el("div", undefined, "perm");
         const ok = el("button", "Cho phép", "allow");
         const no = el("button", "Từ chối", "deny");
@@ -330,7 +379,8 @@ export function openChat(opts: { sessionId: string; title: string; token: string
         if (f.items.length) note("— tin cũ —", "divider");
       } else if (answering) later = f.items; // redrawing mid-turn would cut the reply being written
       else resync(f.items);
-    } else if (f?.t === "ev") onEv(f.e);
+    } else if (f?.t === "jobs" && Array.isArray(f.jobs)) jobs.set(f.jobs);
+    else if (f?.t === "ev") onEv(f.e);
   };
   ws.onclose = (e) => {
     locked = true;
@@ -350,7 +400,7 @@ export function openChat(opts: { sessionId: string; title: string; token: string
       sent.push(text);
       hi = sent.length;
     }
-    userMsg(pics.length ? `${text}${text ? "\n" : ""}\u{1F5BC} ${pics.length} ảnh` : text);
+    userMsg(text, pics);
     cur = null;
     stopped = false;
     setAnswering(true);
@@ -438,6 +488,7 @@ export function openChat(opts: { sessionId: string; title: string; token: string
 
   const close = () => {
     open.splice(open.findIndex((c) => c.close === close), 1);
+    markOpen(open.map((c) => c.id));
     document.removeEventListener("keydown", onDocKey, true);
     ws.onclose = ws.onmessage = null;
     ws.close();
@@ -448,4 +499,5 @@ export function openChat(opts: { sessionId: string; title: string; token: string
   };
   x.onclick = close;
   open.push({ id: opts.sessionId, box, close, geo: win.geo });
+  markOpen(open.map((c) => c.id));
 }

@@ -121,7 +121,7 @@ describe("summary of the day", () => {
   });
   it("counts open PRs and the ones whose CI failed", async () => {
     const { summarize } = await import("../src/client/summary.js");
-    const pr = (ci: "pass" | "fail" | null) => ({ number: 1, title: "t", url: null, author: null, draft: false, review: null, ci });
+    const pr = (ci: "pass" | "fail" | null) => ({ number: 1, title: "t", url: null, author: null, branch: null, draft: false, review: null, ci });
     const s = summarize([], now, [{ repo: "r", prs: [pr("fail"), pr("pass"), pr(null)] }, { repo: "q", prs: [], error: "x" }]);
     expect(s.prs).toEqual({ open: 3, failing: 1 });
   });

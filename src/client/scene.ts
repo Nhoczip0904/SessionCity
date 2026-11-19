@@ -1,7 +1,7 @@
 import type { Container } from "pixi.js";
 import type { Delta, District, SessionDetail } from "../shared/types.js";
 
-export type Place = { kind: "city" } | { kind: "room"; district: District } | { kind: "office"; sessionId: string };
+export type Place = { kind: "city" } | { kind: "room"; district: District; /** session id of the PR review this room shows */ meeting?: string } | { kind: "office"; sessionId: string };
 type Inside = Exclude<Place, { kind: "city" }>;
 
 export interface SceneDeps {

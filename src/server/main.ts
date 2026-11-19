@@ -5,16 +5,17 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as nodePty from "node-pty";
 import { startServer } from "./http.js";
-import { prCache, repoRoots, run } from "./prs.js";
+import { prCache, prInfoCache, repoRoots, run } from "./prs.js";
 import { PtyHub } from "./pty.js";
 import { ChatHub, askSummary } from "./chat.js";
 import { follow } from "./follow.js";
 import { buildingCache, changes } from "./buildings.js";
 import { readMeta } from "./sessionMeta.js";
 import { readOps } from "./activity.js";
-import { history } from "./history.js";
-import { findOnPath, launch, type LaunchOpts } from "./launch.js";
+import { bgJobs, history } from "./history.js";
+import { findOnPath, launch, openHere, type LaunchOpts } from "./launch.js";
 import type { SessionMeta } from "../shared/types.js";
+import { notesFile } from "./notes.js";
 import { Store } from "./store.js";
 import { loadConfigRules, packageRoot, Watcher } from "./watch.js";
 
@@ -57,6 +58,10 @@ const chat = {
     const f = watcher.fileOf(sid);
     return f ? history(f) : [];
   },
+  jobs: async (sid: string) => {
+    const f = watcher.fileOf(sid);
+    return f ? bgJobs(f) : [];
+  },
 };
 const asks = {
   list: () => chatHub.asks().map((a) => ({ session: a.sid, id: a.id, tool: a.tool, summary: askSummary(a.input) })),
@@ -81,7 +86,12 @@ const meta = async (sid: string): Promise<SessionMeta> => {
   const [m, repos] = await Promise.all([f ? readMeta(f) : { model: null, used: 0, outputs: [] }, repoRoots([cwd], run)]);
   return { ...m, changes: await changes(repos, run) };
 };
-const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), launcher, pty: hub, chat, building, meta, asks, prs: prCache(() => store.snapshot().sessions.map((x) => x.cwd), run) });
+const prInfo = prInfoCache(run);
+const sessionPrs = (sid: string) => {
+  const d = store.detailSession(sid);
+  return prInfo(d?.prs ?? [], d?.cwd || homedir());
+};
+const server = await startServer({ port, token: randomBytes(16).toString("hex"), store, clientDir, claude, agentsDir, claudeDir: join(homedir(), ".claude"), notes: notesFile(join(homedir(), ".sessioncity", "notes.json")), launcher, opener: (cwd, what) => openHere(cwd, what, spawn), pty: hub, chat, building, meta, asks, sessionPrs, prs: prCache(() => store.snapshot().sessions.map((x) => x.cwd), run) });
 await watcher.start();
 console.log(server.url);
 if (!claude) console.error("Chưa tìm thấy claude.exe — nút Mở phiên sẽ báo lỗi (cài: winget install Anthropic.ClaudeCode)");

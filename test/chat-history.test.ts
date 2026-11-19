@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -45,6 +45,7 @@ describe("history", () => {
       user("<command-name>/x</command-name>") +
         user("<local-command-stdout>o</local-command-stdout>") +
         user("<system-reminder>r</system-reminder>") +
+        user("<task-notification>n</task-notification>") +
         user("meta", { isMeta: true }) +
         user("summary", { isCompactSummary: true }) +
         user([{ type: "tool_result", tool_use_id: "t1", content: "out" }]) +
@@ -96,5 +97,20 @@ describe("Watcher.fileOf", () => {
     w.stop();
     expect(w.fileOf("sid")).toBe(main);
     expect(w.fileOf("nope")).toBeUndefined();
+  });
+
+  it("prefers the newest copy when a moved session left an old one in another project folder", async () => {
+    await mkdir(join(dir, "a"), { recursive: true });
+    await mkdir(join(dir, "b"), { recursive: true });
+    const old = join(dir, "a", "sid.jsonl"), fresh = join(dir, "b", "sid.jsonl");
+    await writeFile(old, user("old"));
+    await writeFile(fresh, user("new"));
+    const t = Date.now() / 1000;
+    await utimes(old, t - 60, t - 60);
+    await utimes(fresh, t, t);
+    const w = new Watcher(dir, () => {}, { intervalMs: 50 });
+    await w.start();
+    w.stop();
+    expect(w.fileOf("sid")).toBe(fresh);
   });
 });

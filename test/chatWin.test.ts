@@ -7,9 +7,10 @@ const g = (o: Partial<Geo> = {}): Geo => ({ x: 100, y: 100, w: 400, h: 400, min:
 describe("clampGeo", () => {
   it("keeps a window inside the page, below the HUD, and above a minimum size", () => {
     expect(clampGeo(g({ x: -50, y: 0 }), 1000, 800)).toMatchObject({ x: 0, y: 34 });
-    expect(clampGeo(g({ x: 900, y: 790 }), 1000, 800)).toMatchObject({ x: 600, y: 800 - 400 });
+    expect(clampGeo(g({ x: 900, y: 790 }), 1000, 800)).toMatchObject({ x: 1000 - 190 - 400, y: 800 - 400 }); // stops at the session menu
     expect(clampGeo(g({ w: 10, h: 10 }), 1000, 800)).toMatchObject({ w: 300, h: 240 });
-    expect(clampGeo(g({ w: 5000, h: 5000 }), 1000, 800)).toMatchObject({ w: 1000, h: 766 });
+    expect(clampGeo(g({ w: 5000, h: 5000 }), 1000, 800)).toMatchObject({ w: 1000 - 190, h: 766 });
+    expect(clampGeo(g({ x: 900 }), 600, 800).x).toBe(200); // narrow page: the menu is hidden, so the whole width is free
   });
   it("a minimized window only needs its title bar to fit", () => {
     expect(clampGeo(g({ min: true, y: 790 }), 1000, 800).y).toBe(800 - 46);
@@ -62,19 +63,32 @@ describe("floatable", () => {
     const bar = document.createElement("div");
     const close = document.createElement("button");
     close.className = "close";
-    bar.append(close);
+    const range = document.createElement("input");
+    range.type = "range";
+    bar.append(close, range);
     box.append(bar);
     document.body.append(box);
     let saved: Geo | null = null;
     const w = floatable(box, bar, geo, (x) => (saved = x));
     const fire = (el: EventTarget, type: string, x: number, y: number) => el.dispatchEvent(new MouseEvent(type, { clientX: x, clientY: y, bubbles: true, button: 0 }));
-    return { box, bar, close, w, fire, saved: () => saved };
+    return { box, bar, close, range, w, fire, saved: () => saved };
   };
   Object.assign(window, { innerWidth: 1200, innerHeight: 800 });
 
   it("places the box from its geometry", () => {
     const { box } = mk();
     expect([box.style.left, box.style.top, box.style.width, box.style.height]).toEqual(["100px", "100px", "400px", "400px"]);
+  });
+  it("shrinking the browser squeezes the box, widening it gives the spot back", () => {
+    const { box, w } = mk(g({ x: 600, y: 300 }));
+    Object.assign(window, { innerWidth: 800, innerHeight: 500 });
+    window.dispatchEvent(new Event("resize"));
+    expect(box.style.left).toBe("210px"); // pushed in: 800 - 190 - 400
+    expect(box.style.top).toBe("100px");
+    Object.assign(window, { innerWidth: 1200, innerHeight: 800 });
+    window.dispatchEvent(new Event("resize"));
+    expect([box.style.left, box.style.top]).toEqual(["600px", "300px"]);
+    expect(w.geo()).toMatchObject({ x: 600, y: 300 });
   });
   it("dragging the title bar moves the box and saves", () => {
     const { box, bar, fire, saved } = mk();
@@ -89,6 +103,12 @@ describe("floatable", () => {
   it("pressing a button in the bar does not start a drag", () => {
     const { box, close, fire } = mk();
     fire(close, "pointerdown", 150, 110);
+    fire(window, "pointermove", 250, 160);
+    expect(box.style.left).toBe("100px");
+  });
+  it("pressing a slider in the bar does not start a drag", () => {
+    const { box, range, fire } = mk();
+    fire(range, "pointerdown", 150, 110);
     fire(window, "pointermove", 250, 160);
     expect(box.style.left).toBe("100px");
   });
@@ -119,6 +139,14 @@ describe("floatable", () => {
     bar.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     expect(box.classList.contains("min")).toBe(false);
     void fire;
+  });
+  it("minimizing docks the bar at the bottom; restoring flies it back to where it was", () => {
+    const { box } = mk(g({ y: 100 }));
+    const was = box.style.top;
+    box.querySelector<HTMLElement>(".minb")!.click();
+    expect(box.style.top).toBe(`${innerHeight - 46}px`);
+    box.querySelector<HTMLElement>(".minb")!.click();
+    expect(box.style.top).toBe(was);
   });
   it("a click on a window raises it above the others", () => {
     const a = mk();

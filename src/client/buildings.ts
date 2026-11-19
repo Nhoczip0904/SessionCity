@@ -19,7 +19,7 @@ const fixButton = (r: CmdRun, ctx: BuildingCtx): HTMLElement | null => {
 
 export const TITLES: Record<BuildingId, string> = {
   townhall: "Hộp thư — đang chờ bạn",
-  home: "Phòng khách — phiên đang nghỉ",
+  home: "Trụ sở — 10 phòng, mỗi phòng một phiên",
   site: "Bản vẽ thi công — thay đổi chưa commit",
   lab: "Phòng thí nghiệm — kết quả test",
   factory: "Dây chuyền — các lần build",
@@ -63,14 +63,20 @@ function inbox(d: Extract<BuildingData, { id: "townhall" }>, ctx: BuildingCtx): 
   return root;
 }
 
-// ---- phòng khách: sleepers in armchairs ----
+// ---- trụ sở: 10 rooms, one per session ----
+const ROOM_STATE = { working: "đang làm", waiting: "đang chờ", idle: "nghỉ" } as const;
 function lounge(d: Extract<BuildingData, { id: "home" }>, ctx: BuildingCtx): HTMLElement {
-  if (!d.items.length) return empty("Không ai đang nghỉ");
   const root = el("div", undefined, "bd bd-lounge");
-  for (const i of d.items) {
-    const chair = el("button", undefined, "chair");
+  for (let n = 0; n < 10; n++) {
+    const i = d.items[n];
+    if (!i) {
+      root.append(el("div", `Phòng ${n + 1}
+trống`, "chair vacant"));
+      continue;
+    }
+    const chair = el("button", undefined, `chair ${i.status}`);
     chair.type = "button";
-    chair.title = "Đánh thức: mở chat";
+    chair.title = "Mở chat";
     chair.onclick = () => ctx.chat(i.id);
     const ava = ctx.avatarOf(i.id);
     const face = el("div", undefined, "face");
@@ -80,8 +86,8 @@ function lounge(d: Extract<BuildingData, { id: "home" }>, ctx: BuildingCtx): HTM
       img.alt = "";
       face.append(img);
     }
-    face.append(el("span", "z z z", "zzz"));
-    chair.append(face, el("b", i.title || i.project), el("small", `ngủ ${ago(i.since, ctx.now()).replace(" trước", "")}`));
+    if (i.status === "idle") face.append(el("span", "z z z", "zzz"));
+    chair.append(face, el("b", i.title || i.project), el("small", `${ROOM_STATE[i.status]} · ${ago(i.since, ctx.now())}`));
     root.append(chair);
   }
   return root;

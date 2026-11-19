@@ -23,7 +23,8 @@ export interface Chat {
   say(text: string, images?: ChatImage[]): void;
   setModel(model: string): void;
   setMode(mode: string): void;
-  answer(requestId: string, allow: boolean): void;
+  /** `answers` (question text -> chosen label) go back to an AskUserQuestion. */
+  answer(requestId: string, allow: boolean, answers?: Record<string, string>): void;
   interrupt(): void;
   /** Ends the process. */
   kill(): void;
@@ -54,7 +55,8 @@ interface Entry {
 /** The one line a permission question is shown as: the command, the file, or the input cut short. */
 export function askSummary(input: unknown): string {
   const o = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
-  const pick = [o.command, o.file_path, o.path, o.url, o.pattern].find((v) => typeof v === "string" && v);
+  const q = Array.isArray(o.questions) ? (o.questions[0] as { question?: unknown } | undefined)?.question : undefined; // AskUserQuestion
+  const pick = [o.command, o.file_path, o.path, o.url, o.pattern, q].find((v) => typeof v === "string" && v);
   const text = typeof pick === "string" ? pick : typeof input === "string" ? input : JSON.stringify(input ?? "");
   return text.replace(/\s+/g, " ").slice(0, 200);
 }
@@ -196,7 +198,7 @@ export class ChatHub {
         this.mode = mode; // taken as in force until claude refuses it
         send({ type: "control_request", request_id: id, request: { subtype: "set_permission_mode", mode } });
       },
-      answer: (id, allow) => void (mine && this.reply(entry, id, allow)),
+      answer: (id, allow, answers) => void (mine && this.reply(entry, id, allow, answers)),
       interrupt: () => send({ type: "control_request", request_id: `int-${++entry.n}`, request: { subtype: "interrupt" } }),
       kill: () => {
         mine = false;
@@ -222,7 +224,7 @@ export class ChatHub {
     entry.timer.unref?.();
   }
 
-  private reply(entry: Entry, id: string, allow: boolean): void {
+  private reply(entry: Entry, id: string, allow: boolean, answers?: Record<string, string>): void {
     const ask = entry.asks.get(id);
     if (!ask) return;
     entry.asks.delete(id);
@@ -230,7 +232,7 @@ export class ChatHub {
     entry.proc.stdin.write(
       JSON.stringify({
         type: "control_response",
-        response: { subtype: "success", request_id: id, response: allow ? { behavior: "allow", updatedInput: (ask.request as { input?: unknown }).input } : { behavior: "deny", message: "Người dùng từ chối" } },
+        response: { subtype: "success", request_id: id, response: allow ? { behavior: "allow", updatedInput: answers ? { ...((ask.request as { input?: object }).input ?? {}), answers } : (ask.request as { input?: unknown }).input } : { behavior: "deny", message: "Người dùng từ chối" } },
       }) + "\n",
     );
   }

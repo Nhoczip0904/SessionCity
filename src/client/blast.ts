@@ -15,16 +15,18 @@ export class Ruins {
   constructor(private layer: Container, private rects: Rect[]) {}
 
   /** A rock landed at (x, y) px: the building under it blows up, unless it is already rubble. */
-  hit(at: { x: number; y: number }): boolean {
-    const r = this.rects.find((b) => at.x >= b.x && at.x <= b.x + b.w && at.y >= b.y && at.y <= b.y + b.h);
-    if (!r || this.live.some((l) => l.r === r)) return false;
-    const g = new Graphics();
-    g.label = "ruin";
-    g.eventMode = "none";
-    this.layer.addChild(g);
-    this.live.push({ r, t: 0, g, next: 0 });
+  hit(at: { x: number; y: number }, radius = 0): boolean {
+    // radius > 0 (a bolt): every building within that many px of the point, else only the one under it
+    const hit = this.rects.filter((b) => at.x >= b.x - radius && at.x <= b.x + b.w + radius && at.y >= b.y - radius && at.y <= b.y + b.h + radius && !this.live.some((l) => l.r === b));
+    for (const r of radius > 0 ? hit : hit.slice(0, 1)) {
+      const g = new Graphics();
+      g.label = "ruin";
+      g.eventMode = "none";
+      this.layer.addChild(g);
+      this.live.push({ r, t: 0, g, next: 0 });
+    }
     this.update(0);
-    return true;
+    return hit.length > 0;
   }
 
   update(dtMs: number): void {

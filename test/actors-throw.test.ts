@@ -95,7 +95,7 @@ describe("cheering", () => {
   it("everyone near the session's door jumps for a moment, then stands as before", () => {
     const layer = new Container();
     const actors = new Actors(buildCity(null), layer, () => Texture.WHITE, null, () => {}, () => {}, { motion: true, rand: () => 0.5 });
-    actors.sync({ sessions: [{ ...session, status: "idle" }], employees: [] });
+    actors.sync({ sessions: [{ ...session, status: "waiting" }], employees: [] });
     for (let i = 0; i < 400; i++) actors.update(50);
     const mayor = layer.children.find((c) => c.children.some((k) => "text" in k && k.text === "proj")) as Container;
     actors.update(1);

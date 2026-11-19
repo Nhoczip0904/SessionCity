@@ -377,6 +377,26 @@ describe("launch + explore routes", () => {
   });
 });
 
+describe("session PRs route", () => {
+  it("needs the token, only answers for a session id, and returns what the lookup gives", async () => {
+    const asked: string[] = [];
+    const s = await startServer({ port: 0, token: TOKEN, store, clientDir: join(dir, "client"), claude: null, agentsDir: join(dir, "agents"), claudeDir: join(dir, "claude"), launcher: async () => {},
+      sessionPrs: async (id) => (asked.push(id), [{ url: "https://github.com/o/r/pull/1", repo: "o/r", number: 1, title: "t", state: "merged", additions: 1, deletions: 2 }]) });
+    const base = s.url.replace(/\/\?.*$/, "").replace(/\/$/, "");
+    const id = "11111111-2222-3333-4444-555555555555";
+    try {
+      expect((await fetch(`${base}/api/session/${id}/prs`)).status).toBe(401);
+      expect((await fetch(`${base}/api/session/nope/prs?token=${TOKEN}`)).status).toBe(404);
+      const r = await fetch(`${base}/api/session/${id}/prs?token=${TOKEN}`);
+      expect(r.status).toBe(200);
+      expect(((await r.json()) as { number: number }[]).map((x) => x.number)).toEqual([1]);
+      expect(asked).toEqual([id]);
+    } finally {
+      await s.close();
+    }
+  });
+});
+
 describe("PR board route", () => {
   it("needs the token, returns the PR list, and ?fresh=1 skips the cache", async () => {
     const calls: boolean[] = [];

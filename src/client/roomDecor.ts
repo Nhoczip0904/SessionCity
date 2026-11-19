@@ -58,6 +58,16 @@ export function decorUnder(kind: Decor, anim: Anim) {
           const c = (i / 6) % 2 ? 0x222222 : 0xf2c200;
           g.rect(x0, y0 + i, 2, 6).fill(c).rect(x0 + w, y0 + i, 2, 6).fill(c);
         }
+        // inside the tape: a brick wall half laid, stepping down to the right, with a sand heap beside it
+        const bx = x0 + 10, by = y0 + h - 4;
+        for (let r = 0; r < 5; r++) {
+          const len = (5 - r) * 14 + 14;
+          for (let x = 0; x < len; x += 10) g.rect(bx + x + (r % 2) * 5, by - (r + 1) * 6, Math.min(9, len - x), 5).fill(r % 2 ? 0xb5523b : 0xa44a36);
+        }
+        g.moveTo(bx + 88, by).lineTo(bx + 100, by - 10).lineTo(bx + 112, by).closePath().fill(0xd8c088);
+        // wall studs on the right wall, not yet boarded
+        for (let x = RIGHT.x; x < RIGHT.x + RIGHT.w; x += 10) g.rect(x, RIGHT.y, 3, RIGHT.h).fill(0xc89b5a);
+        g.rect(RIGHT.x, RIGHT.y, RIGHT.w, 3).fill(0xc89b5a).rect(RIGHT.x, RIGHT.y + RIGHT.h - 3, RIGHT.w, 3).fill(0xc89b5a);
       });
     case "racks":
       return anim((g, t) => {

@@ -10,8 +10,7 @@ const CONN_TEXT: Record<Conn, string> = {
 };
 
 export function createHud(
-  on: { launch: () => void; summary: () => void; rules: () => void; rock: (armed: boolean) => void; grab: (armed: boolean) => void; plaza: (shown: boolean) => void; photo: (file: File) => void; agents: (shown: boolean) => void },
-  plazaOn: boolean,
+  on: { launch: () => void; summary: () => void; rules: () => void; rock: (armed: boolean) => void; grab: (armed: boolean) => void; bolt: (armed: boolean) => void; meteor: (armed: boolean) => void; sniper: (armed: boolean) => void; laser: (armed: boolean) => void; sandbox: (on: boolean) => void; sbx: (kind: string, armed: boolean) => void; agents: (shown: boolean) => void },
   agentsOn: boolean,
 ) {
   const agentsBtn = $("btn-agents"), agents = $("agents");
@@ -28,36 +27,39 @@ export function createHud(
   $("btn-launch").onclick = on.launch;
   $("btn-summary").onclick = on.summary;
   $("btn-rules").onclick = on.rules;
-  // rock and throw are two tools for the same map: arming one puts the other down
+  // rock, throw and lightning are tools for the same map in one drop-down: arming one puts the others down
   const tools = [
     { btn: $("btn-rock"), set: on.rock },
     { btn: $("btn-grab"), set: on.grab },
+    { btn: $("btn-bolt"), set: on.bolt },
+    { btn: $("btn-meteor"), set: on.meteor },
+    { btn: $("btn-sniper"), set: on.sniper },
+    { btn: $("btn-laser"), set: on.laser },
   ];
+  // sandbox: its tools stay hidden until the mode is on; they share the one-at-a-time rule with the toys above
+  const sbx = [...document.querySelectorAll<HTMLElement>("[data-sbx]")];
+  for (const btn of sbx) tools.push({ btn, set: (armed) => on.sbx(btn.dataset.sbx!, armed) });
+  const sandbox = $("btn-sandbox");
+  sandbox.onclick = () => {
+    const onNow = sandbox.getAttribute("aria-pressed") !== "true";
+    sandbox.setAttribute("aria-pressed", String(onNow));
+    for (const btn of sbx) {
+      btn.hidden = !onNow;
+      if (!onNow && btn.getAttribute("aria-pressed") === "true") { btn.setAttribute("aria-pressed", "false"); on.sbx(btn.dataset.sbx!, false); }
+    }
+    on.sandbox(onNow);
+  };
+  const menu = $("toys") as HTMLDetailsElement, sum = $("toys-sum");
   for (const t of tools)
     t.btn.onclick = () => {
       const armed = t.btn.getAttribute("aria-pressed") !== "true";
       t.btn.setAttribute("aria-pressed", String(armed));
       t.set(armed);
-      if (!armed) return;
-      for (const o of tools) if (o !== t && o.btn.getAttribute("aria-pressed") === "true") { o.btn.setAttribute("aria-pressed", "false"); o.set(false); }
+      if (armed) for (const o of tools) if (o !== t && o.btn.getAttribute("aria-pressed") === "true") { o.btn.setAttribute("aria-pressed", "false"); o.set(false); }
+      sum.textContent = armed ? `🎯 ${t.btn.textContent}` : "🎯 Trò chơi";
+      sum.setAttribute("aria-pressed", String(armed));
+      menu.open = false;
     };
-  const plaza = $("btn-plaza"), photo = $("btn-photo"), file = $("photo-file") as HTMLInputElement;
-  const showPlaza = (shown: boolean) => {
-    plaza.setAttribute("aria-pressed", String(shown));
-    photo.hidden = !shown;
-  };
-  showPlaza(plazaOn);
-  plaza.onclick = () => {
-    const shown = plaza.getAttribute("aria-pressed") !== "true";
-    showPlaza(shown);
-    on.plaza(shown);
-  };
-  photo.onclick = () => file.click();
-  file.onchange = () => {
-    const f = file.files?.[0];
-    file.value = ""; // picking the same file again still fires
-    if (f) on.photo(f);
-  };
   return {
     setCounts(sessions: Session[]) {
       for (const k of ["working", "waiting", "idle"] as const) $(`n-${k}`).textContent = String(sessions.filter((s) => s.status === k).length);

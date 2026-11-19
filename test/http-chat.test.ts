@@ -24,7 +24,7 @@ class FakeChat implements Chat {
   say(t: string, i?: { media_type: string; data: string }[]) { this.calls.push(i?.length ? ["say", t, i] : ["say", t]); }
   setModel(m: string) { this.calls.push(["model", m]); }
   setMode(m: string) { this.calls.push(["mode", m]); }
-  answer(id: string, a: boolean) { this.calls.push(["answer", id, a]); }
+  answer(id: string, a: boolean, answers?: Record<string, string>) { this.calls.push(answers ? ["answer", id, a, answers] : ["answer", id, a]); }
   interrupt() { this.calls.push(["interrupt"]); }
   kill() { this.kills++; }
   release() { this.releases++; }
@@ -146,6 +146,19 @@ describe("/chat websocket", () => {
     await until(() => frames.length === 2);
     expect(frames.map((f) => f.t)).toEqual(["history", "ev"]);
     expect(frames[1].e).toEqual({ type: "early" });
+    ws.close();
+  });
+
+  it("passes the chosen answers of an AskUserQuestion on, only when they are strings", async () => {
+    const { ws } = await connect(`session=${SID}`);
+    const c = chat;
+    const n = c.calls.length;
+    ws.send(JSON.stringify({ t: "allow", id: "r1", answers: { "Tab hay dropdown?": "Tab" } }));
+    ws.send(JSON.stringify({ t: "allow", id: "r1", answers: { q: 5 } }));
+    ws.send(JSON.stringify({ t: "allow", id: "r1", answers: "Tab" }));
+    ws.send(JSON.stringify({ t: "allow", id: "r1", answers: ["Tab"] }));
+    await until(() => c.calls.length >= n + 4);
+    expect(c.calls.slice(n)).toEqual([["answer", "r1", true, { "Tab hay dropdown?": "Tab" }], ["answer", "r1", true], ["answer", "r1", true], ["answer", "r1", true]]);
     ws.close();
   });
 

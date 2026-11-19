@@ -2,12 +2,9 @@ import type { AskRow, Delta, State } from "../shared/types.js";
 
 export type Conn = "connecting" | "open" | "closed" | "auth";
 
-/** Fetch /api/state then hold a WebSocket; reconnect 1 s → 2 s → 4 s … max 10 s. Stops on a missing/rejected token. */
+/** Fetch /api/state then hold a WebSocket; reconnect 1 s → 2 s → 4 s … max 10 s. Stops when the server rejects the cookie token. */
 export function connect(onState: (s: State) => void, onDelta: (d: Delta) => void, onConn: (c: Conn) => void = () => {}, onAsks: (a: AskRow[]) => void = () => {}) {
-  const token = new URLSearchParams(location.search).get("token");
-  if (!token) return onConn("auth");
-  const q = `token=${encodeURIComponent(token)}`;
-  const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws?${q}`;
+  const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
   let delay = 1000;
 
   const retry = () => {
@@ -19,7 +16,7 @@ export function connect(onState: (s: State) => void, onDelta: (d: Delta) => void
   async function cycle() {
     onConn("connecting");
     try {
-      const res = await fetch(`/api/state?${q}`);
+      const res = await fetch("/api/state");
       if (res.status === 401) return onConn("auth"); // WS close codes can't tell a bad token from a dead server
       if (!res.ok) return retry();
       onState((await res.json()) as State);

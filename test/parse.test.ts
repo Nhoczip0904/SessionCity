@@ -65,7 +65,7 @@ describe("parseLine", () => {
   it("assistant Read tool_use → tool in library", () => {
     const l = asst([{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "a.ts" } }]);
     expect(parseLine(l, ctx, rules)).toEqual([
-      { kind: "tool", sessionId: "s1", at: T, name: "Read", input: { file_path: "a.ts" }, district: "library" },
+      { kind: "tool", sessionId: "s1", at: T, name: "Read", input: { file_path: "a.ts" }, district: "library", toolUseId: "t1" },
     ]);
   });
 

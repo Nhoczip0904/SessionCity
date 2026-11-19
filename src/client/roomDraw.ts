@@ -1,8 +1,11 @@
-import { Container, Graphics, Rectangle, Sprite, Text } from "pixi.js";
+import { Container, Graphics, Rectangle, Sprite, Text, Ticker } from "pixi.js";
 import type { Pt } from "./path.js";
 import { SPOTS, decorOver, decorUnder, drawJob, type Anim } from "./roomDecor.js";
-import { BOARD_W, BOARD_X, MAX_DESKS, ROOM_COLS, ROOM_ROWS, deskSpots, workJob, type Furniture, type RoomTheme } from "./rooms.js";
+import { BOARD_W, BOARD_X, MAX_DESKS, ROOM_COLS, ROOM_ROWS, deskJob, deskSpots, workJob, type Door, type Furniture, type RoomTheme } from "./rooms.js";
 import { drawPapers } from "./paperwork.js";
+import { drawDeskJob } from "./deskJobs.js";
+import { argue } from "./argue.js";
+import { snooze } from "./snooze.js";
 import * as K from "./tiles.js";
 import type { Sheets } from "./tiles.js";
 
@@ -120,7 +123,42 @@ function leds(root: Container, spots: Pt[]) {
   root.addChild(g);
 }
 
-export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[], board: string[], note: string | null, onFurniture: (f: Furniture) => void): Container {
+const LAMP = { working: 0x6bff9b, waiting: 0xff9a3c, idle: 0x7aa0d0 } as const;
+const SHIRT = [0x4a7bd0, 0xd04a4a, 0x4ab07a, 0xd0a84a, 0x9a5ac0];
+/**
+ * One HQ room in a 48×58 cell: name board on the far wall, a big box table with chairs round it (the session's leader at the
+ * head, its working staff in the other chairs), cabinet, rug and plant. `top` rooms hang above the corridor, the others below,
+ * mirrored so the far wall is always the outer one.
+ */
+function hqCell(g: Graphics, d: Door, x0: number, y0: number, cw: number, ch: number, top: boolean): void {
+  const on = d.live;
+  const r = (x: number, dy: number, w: number, h: number, c: number) => g.rect(x0 + x, top ? y0 + dy : y0 + ch - dy - h, w, h).fill(c);
+  const person = (x: number, dy: number, c: number) => {
+    const cy = top ? y0 + dy : y0 + ch - dy;
+    g.rect(x0 + x - 2.5, cy, 5, 6).fill(c).circle(x0 + x, cy - 2, 2.4).fill(0xf0c8a0);
+  };
+  r(0, 0, cw, ch, on ? 0xc8a878 : 0x5a5060); // floor
+  r(0, 0, cw, 12, on ? 0xf0e8d8 : 0x4a4458); // back wall
+  r(6, 2, cw - 12, 8, on ? 0xfafaf2 : 0x6a6478); // name board (label sits on it)
+  r(6, 10, cw - 12, 1, 0x8a6a40);
+  r(8, 18, cw - 16, 34, on ? 0x9c4a4a : 0x40384a); // rug
+  r(1, 13, 8, 8, on ? 0x7a4f30 : 0x3a3040); // cabinet
+  r(2, 15, 6, 1, on ? 0xe0c080 : 0x4a4050);
+  r(cw - 8, 13, 6, 8, 0x2f7a3a); r(cw - 7, 21, 4, 3, 0x6b4a2b); // plant
+  const tx = 11, tw = cw - 22;
+  const chairs: [number, number][] = [[tx + 5, 24], [tx + 5, 41], [tx + tw - 9, 24], [tx + tw - 9, 41], [cw - 9, 32]]; // two each side, one at the foot
+  for (const [x, dy] of chairs) r(x, dy, 6, 5, on ? 0x5a3a24 : 0x2a2230);
+  r(2, 31, 7, 8, on ? 0x5a3a24 : 0x2a2230); // leader's chair, head of the table
+  r(tx, 28, tw, 11, on ? 0xc8651e : 0x5a3a2a); r(tx, 38, tw, 2, on ? 0x8a4a14 : 0x3a2a22); // box table
+  if (on) {
+    person(5.5, 31, SHIRT[0]!); // leader
+    const seats: [number, number][] = [[chairs[0]![0] + 3, 22], [chairs[1]![0] + 3, 44], [chairs[2]![0] + 3, 22], [chairs[3]![0] + 3, 44], [cw - 6, 34]];
+    for (let k = 0; k < (d.staff ?? 0); k++) person(seats[k]![0], seats[k]![1], SHIRT[(k + 1) % SHIRT.length]!);
+  }
+  if (d.status) g.circle(x0 + cw - 6, top ? y0 + 6 : y0 + ch - 6, 3).fill(LAMP[d.status]); // status lamp
+}
+
+export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[], board: string[], note: string | null, onFurniture: (f: Furniture) => void, doors: Door[] = []): Container {
   const root = new Container();
   const ind = sheets?.indoor;
   const bg = new Graphics();
@@ -187,9 +225,58 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
     clickable(root.addChild(new Container()), new Rectangle(s.x, s.y, s.w, s.h), "building", s.name);
   }
 
+  // lobby: the building cut open, one meeting room per cell: lit with people around the table while a review is going on, dark otherwise
+  if (doors.length) {
+    const cols = doors.length > 8 ? 5 : 4, floors = doors.length > 4 ? 2 : 1, bx = T, bw = (ROOM_COLS - 2) * T, cw = bw / cols, ch = floors === 2 ? 4.1 * T : 5.4 * T, by = floors === 2 ? 2.6 * T : 3.4 * T;
+    root.addChild(new Graphics().rect(bx - 3, by - 8, bw + 6, ch * floors + 11).fill(0x7a4a2a).rect(bx - 3, by - 8, bw + 6, 6).fill(0xa0522d)); // outer wall, roof edge
+    const hq = theme.layout === "hq", hall = 22; // HQ: two rows of rooms, one corridor between
+    if (hq) {
+      const rh = 58, cx = bx + 6;
+      root.addChild(new Graphics().rect(bx - 3, 10, bw + 6, rh * 2 + hall + 11).fill(0x7a4a2a).rect(bx - 3, 10, bw + 6, 6).fill(0xa0522d).rect(bx, 18 + rh, bw, hall).fill(0xb9a98c).rect(bx + 2, 18 + rh + 8, bw - 4, 6).fill(0x8e2b2b)); // outer wall, corridor and its carpet
+      for (const x of [cx, bx + bw - 6]) root.addChild(new Graphics().rect(x - 3, 18 + rh + 14, 6, 6).fill(0x6b4a2b).circle(x, 18 + rh + 11, 5).fill(0x2f7a3a)); // plants at the ends
+    }
+    doors.forEach((d, i) => {
+      if (hq) {
+        const top = i < cols, rh = 58, x0 = bx + (i % cols) * cw, y0 = top ? 18 : 18 + rh + hall, mid = x0 + cw / 2;
+        const g = new Graphics();
+        hqCell(g, d, x0, y0, cw, rh, top);
+        g.rect(x0, y0, cw, rh).stroke({ color: 0x3a2a1c, width: 2 }).rect(mid - 5, top ? y0 + rh - 2 : y0, 10, 2).fill(d.live ? 0xc8a878 : 0x5a5060); // wall, doorway onto the corridor
+        const t = label(d.label.length > 8 ? d.label.slice(0, 7) + "…" : d.label);
+        t.anchor.set(0.5, 0.5);
+        t.scale.set(0.8);
+        t.style.fill = 0x222222;
+        t.position.set(mid, top ? y0 + 6 : y0 + rh - 6);
+        if (!d.live) t.alpha = 0.5;
+        const box = new Container();
+        box.addChild(g, t);
+        root.addChild(box);
+        if (d.live) clickable(box, new Rectangle(x0, y0, cw, rh), `door:${i}`, d.label);
+        return;
+      }
+      const x0 = bx + (i % cols) * cw, y0 = by + Math.floor(i / cols) * ch, mid = x0 + cw / 2, flo = y0 + ch - 9, tx = mid - 17, ty = flo - 3;
+      const g = new Graphics();
+      g.rect(x0, y0, cw, ch).fill(d.live ? 0xe8c98a : 0x4a4458).rect(x0, flo, cw, 9).fill(d.live ? 0x8a5a2b : 0x362e40);
+      g.rect(mid - 11, y0 + 12, 22, 12).fill(d.live ? 0x2a2e35 : 0x242630); // diff screen
+      if (d.live) for (let k = 0; k < 4; k++) g.rect(mid - 9, y0 + 14 + k * 2.2, 8 + ((k * 5) % 7), 1).fill(k % 2 ? 0x6bff9b : 0xff6b6b);
+      g.rect(x0 + 6, flo - 6, 4, 8).fill(d.live ? 0x6b4a2e : 0x2a2230).rect(x0 + cw - 10, flo - 6, 4, 8).fill(d.live ? 0x6b4a2e : 0x2a2230); // chairs
+      if (d.live) for (let k = 0; k < 3; k++) g.rect(tx + 2 + k * 12 - 0.5, ty - 7, 5, 7).fill([0x4a7bd0, 0xd04a4a, 0x4ab07a, 0xd0a84a][(i + k) % 4]!).circle(tx + 4.5 + k * 12, ty - 9, 2.4).fill(0xf0c8a0); // people
+      g.rect(tx, ty, 34, 4).fill(d.live ? 0xc8651e : 0x5a3a2a).rect(tx + 2, ty + 4, 2, 4).fill(d.live ? 0x8a4a14 : 0x3a2a22).rect(tx + 30, ty + 4, 2, 4).fill(d.live ? 0x8a4a14 : 0x3a2a22); // table
+      g.rect(x0, y0, cw, ch).stroke({ color: 0x3a2a1c, width: 2 });
+      const t = label(d.label.length > cols + 3 ? d.label.slice(0, cols + 2) + "…" : d.label);
+      t.anchor.set(0.5, 0);
+      t.position.set(mid, y0 + 2);
+      if (!d.live) t.alpha = 0.6;
+      if (d.status) g.circle(x0 + cw - 6, y0 + 6, 3).fill(d.status === "working" ? 0x6bff9b : d.status === "waiting" ? 0xff9a3c : 0x7aa0d0); // HQ room: status lamp
+      const box = new Container();
+      box.addChild(g, t);
+      root.addChild(box);
+      if (d.live) clickable(box, new Rectangle(x0, y0, cw, ch), `door:${i}`, d.label);
+    });
+  }
+
   /** Chair, desk and screen; the person (if any) sits between chair and desk. In a hall only the big desk has one. */
   const desk = theme.desk ?? { tiles: K.IN_DESK, monitor: true };
-  const hall = theme.layout === "hall", lounge = theme.layout === "lounge", work = theme.layout === "site" || theme.layout === "factory" ? theme.layout : null;
+  const hall = theme.layout === "hall" || theme.layout === "meeting", lounge = theme.layout === "lounge", work = theme.layout === "site" || theme.layout === "factory" ? theme.layout : null;
   const span = (big: boolean) => (big ? { left: -1, w: 3 } : hall || lounge ? { left: 0, w: 1 } : { left: 0, w: 2 });
   const station = (x: number, y: number, big: boolean, fig: Container | null, on: boolean, back = false, working = false): Container => {
     const { w } = span(big), left = x + span(big).left;
@@ -197,6 +284,24 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
     const c = new Container();
     if (hall && !big) {
       blob(cx, (y + 1) * T - 1, T * 0.45);
+      const meeting = theme.layout === "meeting";
+      if (meeting && fig) {
+        // papers on the table in front of the seat, shuffled while this one works
+        const g = new Graphics(), py = back ? (y - 1) * T + 4 : (y + 1) * T + 4, px = Math.round(cx) - 5, phase = (x * 7 + y * 3) % 16;
+        g.eventMode = "none";
+        drawPapers(g, px, py, 0, phase);
+        if (working) g.onRender = () => { g.clear(); drawPapers(g, px, py, performance.now(), phase); };
+        c.addChild(g);
+      }
+      if (back) {
+        // across the table: the back of the chair and the person's head over it
+        if (fig) {
+          fig.position.set(Math.round(cx), y * T + 10);
+          c.addChild(fig);
+        }
+        c.addChild(sprite(K.IN_CHAIR_BACK, cx - T / 2, y * T - 3, 0x555555));
+        return c;
+      }
       c.addChild(sprite(K.IN_CHAIR, cx - T / 2, y * T + 2, 0x555555));
       if (fig) {
         fig.position.set(Math.round(cx), (y + 1) * T - 1);
@@ -234,8 +339,17 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
     const deskTiles = big ? K.IN_BIG_DESK : desk.tiles;
     const mx = (left + w - 1) * T + 2;
     // a bit of clutter: papers or a mug beside the screen
+    const job = deskJob(theme.deskJobs, { x, y });
     const clutter = (dy: number) => {
       const g = new Graphics();
+      if (job) {
+        // the work of this department on the desk: reading, drafting, computing, pouring...
+        const px = left * T + 2, phase = (x * 7 + y * 3) % 16;
+        g.eventMode = "none";
+        drawDeskJob(g, job, px, dy, 0, working, phase);
+        if (working) g.onRender = () => { g.clear(); drawDeskJob(g, job, px, dy, performance.now(), true, phase); };
+        return g;
+      }
       if (working) {
         // a working session's worker shuffles papers and now and then stamps one
         const px = left * T + 3, phase = (x * 7 + y * 3) % 16;
@@ -258,6 +372,11 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
       if (fig) {
         fig.position.set(Math.round(cx), y * T + 10); // only the top of the head shows over the chair back
         c.addChild(fig);
+        if (theme.layout === "console") {
+          // headset: a band over the head, a cup on each ear
+          const top = fig.y - fig.height;
+          c.addChild(new Graphics().rect(cx - 5, top - 1, 10, 1.5).fill(0x2a2e35).rect(cx - 6, top, 2, 4).fill(0x3a3f48).rect(cx + 4, top, 2, 4).fill(0x3a3f48));
+        }
       }
       c.addChild(sprite(K.IN_CHAIR_BACK, cx - T / 2, y * T - 3, 0x555555));
       return c;
@@ -304,6 +423,21 @@ export function drawRoom(sheets: Sheets | null, theme: RoomTheme, seats: Seat[],
     seat.hitArea = lounge ? new Rectangle(left * T, (y - 1) * T - 6, w * T, 2 * T + 6) : back ? new Rectangle(left * T, (y - 1) * T, w * T, 2 * T + 8) : new Rectangle(left * T, y * T - 6, w * T, 2 * T + 6);
     seat.on("pointertap", s.onPick);
     root.addChild(seat);
+  }
+
+  if (theme.layout === "meeting" && seats.length) {
+    // the people at the table argue: a line pops up over a random head every moment
+    const step = argue(root, seats.map((s) => ({ x: (s.at.x + 0.5) * T, y: s.at.y * T - 6 })));
+    const tick = (tk: Ticker) => (root.destroyed ? Ticker.shared.remove(tick) : step(tk.deltaMS));
+    Ticker.shared.add(tick);
+  }
+
+  // idle people (badge "z") doze: a z floats up from each head and the body breathes
+  const asleep = seats.filter((s) => s.badge === "z" && !s.done && s.fig);
+  if (asleep.length && !globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    const step = snooze(root, asleep.map((s) => ({ x: s.fig!.x, y: s.fig!.y - s.fig!.height - 2, fig: s.fig })));
+    const tick = (tk: Ticker) => (root.destroyed ? Ticker.shared.remove(tick) : step(tk.deltaMS));
+    Ticker.shared.add(tick);
   }
 
   if (note) {

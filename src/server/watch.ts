@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Event } from "../shared/types.js";
 import { loadRules, type Rule } from "./classify.js";
@@ -46,7 +46,7 @@ export class Watcher {
   ) {
     this.rules = opts.rules ?? loadConfigRules();
     this.intervalMs = opts.intervalMs ?? 2000;
-    this.maxAgeMs = opts.maxAgeMs ?? 24 * 3600_000;
+    this.maxAgeMs = opts.maxAgeMs ?? 7 * 24 * 3600_000;
   }
 
   async start(): Promise<void> {
@@ -59,9 +59,16 @@ export class Watcher {
     clearTimeout(this.timer);
   }
 
-  /** The main transcript of a session (not a subagent file). */
+  /** The main transcript of a session (not a subagent file); the newest when a moved session left copies in several project folders. */
   fileOf(sessionId: string): string | undefined {
-    for (const [path, t] of this.tracked) if (t.sessionId === sessionId && !t.agentId) return path;
+    let best: string | undefined, at = -1;
+    for (const [path, t] of this.tracked) {
+      if (t.sessionId !== sessionId || t.agentId) continue;
+      let m = 0;
+      try { m = statSync(path).mtimeMs; } catch { /* gone: oldest */ }
+      if (m > at) { best = path; at = m; }
+    }
+    return best;
   }
 
   private async tick(): Promise<void> {

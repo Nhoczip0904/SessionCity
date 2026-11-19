@@ -5,6 +5,7 @@ import { TILE, type buildCity } from "./city.js";
 import { flyPaper, handoffs } from "./handoff.js";
 import { findPath, type Pt } from "./path.js";
 import { fireworks } from "./party.js";
+import { CITY_EDGE, STATION_ROUTE, msToNextStop, trainClock } from "./forest.js";
 import { flyPlane } from "./ship.js";
 import { nearestWalkable, randomRoadTile, wanderTarget } from "./roads.js";
 import { nearestHit } from "./rock.js";
@@ -16,8 +17,12 @@ export type PickKind = "session" | "employee";
 const SPEED = 6 / 1000; // tiles per ms
 const MAX_EMPLOYEES = 8;
 const DOWN_MS = 1500;
+const CHAR = 0x1a1a1a; // a bolt leaves people black
 const FLY_MS = 700, CHEER_MS = 1200, FLICK_MS = 100, MAX_FLICK = 1.2; // MAX_FLICK: px per ms, ×350 ms = how far a flick carries
 const PALETTE = [0xe6194b, 0x3cb44b, 0xffe119, 0x4363d8, 0xf58231, 0x911eb4, 0x46f0f0, 0xf032e6, 0xbcf60c, 0xfabebe, 0x008080, 0xe6beff];
+/** What Tín, the city mascot, says when poked. */
+export const QUIPS = ["Chào bạn! Mình là Tín 🐾", "Hôm nay code xong chưa?", "Nhớ uống nước nha!", "Đừng quên commit đó!", "Build xanh là đời xanh."];
+
 const LIVE_TEXT = {
   style: { fontFamily: 'Consolas, "DejaVu Sans Mono", "Courier New", monospace', fontSize: 7, fill: 0xffffff, stroke: { color: 0x111111, width: 2 } },
   resolution: 4,
@@ -89,9 +94,15 @@ interface Actor {
   wander: boolean;
   wait: number; // ms until the next wander step
   citizen?: boolean;
+  visit?: boolean; // walking to a decor house door
+  inside?: number; // ms left inside a decor house (out of sight); Infinity = out of town
+  exit?: boolean; // walking out to the station to leave town
+  seat?: Pt; // park pavement tile it is walking to, to sit on the bench below
+  sit?: number; // ms left sitting on a park bench
   lane: number; // px to the right of the walking direction
   down?: number; // ms left lying on the ground after a rock hit
   ouch?: Text;
+  say?: { t: Text; ms: number }; // mascot's speech bubble and ms left showing
   cheer?: number; // ms left jumping for joy
   fly?: { from: Pt; tile: Pt; t: number }; // thrown: pixels it left from, tile it lands on, ms in the air
 }
@@ -104,14 +115,46 @@ export const alertBox = (): Graphics =>
     .rect(-1, -8, 2, 4).fill(0x000000)
     .rect(-1, -3, 2, 2).fill(0x000000);
 
+/** Layered Kenney sprites (16×16, feet at the origin): an anime girl over the outfit's shirt, hair/skirt/bow picked by `look`. */
+export function animeFigure(s: Sheets, slot: number, outfit: Outfit, look = slot): Container {
+  const [bc, br] = K.SHIRT_COLORS[slot % K.SHIRT_COLORS.length];
+  const shirt: K.Frame = outfit.own ? [bc + outfit.shirt[0], br + outfit.shirt[1]] : outfit.shirt;
+  const fig = new Container();
+  const add = (f: K.Frame, tint?: number) => {
+    const spr = new Sprite(s.char(f[0], f[1]));
+    spr.position.set(-8, -16);
+    if (tint !== undefined) spr.tint = tint;
+    fig.addChild(spr);
+  };
+  add(K.CHAR_BODY); add(K.PANTS); add(K.SHOES); add(shirt);
+  // sprite pixels: head x 4–11 rows 2–6 (eyes on row 5), pants rows 13–15
+  const face = new Graphics();
+  const px = (x: number, y: number, w: number, h: number, c: number, a = 1) => face.rect(x - 8, y - 16, w, h).fill({ color: c, alpha: a });
+  const pick = <T,>(list: readonly T[], k: number) => list[(look * k + 1) % list.length];
+  const skirt = pick(K.SKIRTS, 5);
+  px(3, 12, 10, 1, skirt).rect(-6, -3, 12, 2).fill(skirt); // skirt over the pants
+  px(5, 4, 2, 2, 0x2a3a8a); px(9, 4, 2, 2, 0x2a3a8a); // big eyes
+  px(5, 4, 1, 1, 0xffffff); px(9, 4, 1, 1, 0xffffff); // shine
+  px(5, 6, 1, 1, 0xff8aa0, 0.8); px(10, 6, 1, 1, 0xff8aa0, 0.8); // blush
+  fig.addChild(face);
+  const hair = pick(K.ANIME_HAIR, 7);
+  for (const f of K.HAIR_STYLES[look % K.HAIR_STYLES.length]) add(f, hair);
+  const bow = new Graphics().rect(1, -15, 3, 2).fill(pick(K.BOWS, 3)).rect(2, -15, 1, 2).fill({ color: 0x000000, alpha: 0.25 });
+  fig.addChild(bow);
+  if (outfit.item) add(outfit.item);
+  return fig;
+}
+
 export class Actors {
   private mayors = new Map<string, Actor>();
+  private president: string | null = null; // session id whose mayor wears the sash
   private staff = new Map<string, Actor>();
   private slots = new Map<string, number>();
   private more = new Map<string, Text>();
   private textures = new Map<string, Texture>();
   private hqOwner: (string | undefined)[] = [];
-  private hqHits: Container[];
+  private hqHit: Container;
+  private hqLights = new Graphics();
   private plotHits: Container[];
   private lastStaff = new Map<string, { type: string; sessionId: string }>();
   private citizens: Actor[] = [];
@@ -130,26 +173,16 @@ export class Actors {
     private opts: { motion: boolean; rand: Rand } = { motion: !matchMedia("(prefers-reduced-motion: reduce)").matches, rand: Math.random },
   ) {
     layer.sortableChildren = true;
-    // HQ houses: clicking one enters the office of the session living there
-    this.hqHits = city.hqPlots.map((r, i) => {
-      const h = new Container();
-      h.hitArea = new Rectangle(r.x, r.y, r.w, r.h);
-      h.cursor = "pointer";
-      h.eventMode = "none";
-      h.zIndex = -1;
-      h.on("pointertap", () => { const id = this.hqOwner[i]; if (id) this.onEnter({ kind: "office", sessionId: id }); });
-      // empty houses are dimmed; a lived-in one carries its project's name on a plate
-      const dim = new Graphics().rect(r.x, r.y, r.w, r.h).fill({ color: 0x000000, alpha: 0.45 });
-      const plate = new Container();
-      const name = new Text({ text: "", ...LIVE_TEXT, style: { ...LIVE_TEXT.style, fontSize: 6 } });
-      name.anchor.set(0.5);
-      plate.addChild(new Graphics(), name);
-      plate.position.set(r.x + r.w / 2, r.y + r.h / 2);
-      plate.visible = false;
-      h.addChild(dim, plate);
-      layer.addChild(h);
-      return h;
-    });
+    // HQ: one building, 10 rooms; clicking it opens the room list. A lit window = a session lives in that room
+    const hq = city.hqPlots[0]!;
+    this.hqHit = new Container();
+    this.hqHit.hitArea = new Rectangle(hq.x, hq.y, hq.w, hq.h);
+    this.hqHit.cursor = "pointer";
+    this.hqHit.eventMode = "static";
+    this.hqHit.zIndex = -1;
+    this.hqHit.on("pointertap", () => this.onEnter({ kind: "room", district: "home" }));
+    this.hqLights.zIndex = -1;
+    layer.addChild(this.hqHit, this.hqLights);
     // district buildings: clicking one enters its room
     this.plotHits = city.plots.map((p) => {
       const h = new Container();
@@ -162,10 +195,17 @@ export class Actors {
       return h;
     });
     if (opts.motion) for (let i = 0; i < 5; i++) this.citizens.push(this.makeCitizen());
+    this.citizens.push(this.makeMascot("Tín", 77, true));
+    for (const [i, name] of ["Quang", "Huy", "Đạt"].entries()) this.citizens.push(this.makeMascot(name, 31 + i * 13, false));
   }
 
-  private makeCitizen(): Actor {
-    const a = this.make(randomRoadTile(this.city.walkable, this.opts.rand), "", () => {}, false);
+  /** Sandbox: one more walker on the road tile nearest to a point (px in the layer). */
+  spawnCitizen(at: Pt): void {
+    this.citizens.push(this.makeCitizen(nearestWalkable(this.city.walkable, { x: Math.floor(at.x / TILE), y: Math.floor(at.y / TILE) })));
+  }
+
+  private makeCitizen(at: Pt = randomRoadTile(this.city.walkable, this.opts.rand)): Actor {
+    const a = this.make(at, "", () => {}, false);
     a.c.eventMode = "none";
     a.label.visible = false;
     a.citizen = true;
@@ -175,6 +215,39 @@ export class Actors {
       const spr = new Sprite(this.tex(0x999999, true));
       spr.anchor.set(0.5, 1);
       return spr;
+    });
+    return a;
+  }
+
+  /** Tín, Quang, Huy and Đạt: citizens with a permanent gold name who answer when clicked. Only Tín (`cool`) wears the cape and shades. */
+  private makeMascot(who: string, look: number, cool: boolean): Actor {
+    let n = 0;
+    const lines = [`Chào bạn! Mình là ${who} 🐾`, ...QUIPS.slice(1)];
+    const a = this.make(randomRoadTile(this.city.walkable, this.opts.rand), who, () => {
+      const t = a.say?.t ?? new Text({ text: "", ...LIVE_TEXT, style: { ...LIVE_TEXT.style, fontSize: 8, fill: 0xffd23f } });
+      if (!a.say) { t.anchor.set(0.5, 1); t.y = a.label.y - 9; a.c.addChild(t); }
+      t.text = lines[n++ % lines.length];
+      t.visible = true;
+      a.say = { t, ms: 2500 };
+    }, false);
+    a.label.style.fill = 0xffd23f;
+    a.citizen = true; // wanders the roads like a citizen
+    a.wander = this.opts.motion;
+    this.dress(a, "mascot", () => {
+      const body = this.sheets ? this.figure(0, K.OUTFIT_CITIZEN, true, look) : new Sprite(this.tex(0xffd23f, true));
+      if (body instanceof Sprite) body.anchor.set(0.5, 1);
+      if (!cool) return body;
+      // gold aura on the ground, a red cape behind, dark shades on the face
+      const px = (g: Graphics, x: number, y: number, w: number, h: number, c: number, al = 1) => g.rect(x, y, w, h).fill({ color: c, alpha: al });
+      const aura = new Graphics().ellipse(0, -1, 10, 3).fill({ color: 0xffd23f, alpha: 0.5 });
+      const cape = new Graphics();
+      px(cape, -6, -11, 12, 9, 0xc1121f); px(cape, -7, -4, 14, 3, 0x8d0b15);
+      const shades = new Graphics();
+      shades.label = "shades";
+      px(shades, -4, -12, 8, 2, 0x111111); px(shades, -3, -12, 2, 1, 0x7fd8ff);
+      const fig = new Container();
+      fig.addChild(aura, cape, body, shades);
+      return fig;
     });
     return a;
   }
@@ -195,33 +268,7 @@ export class Actors {
       spr.anchor.set(0.5, 1);
       return spr;
     }
-    const s = this.sheets;
-    const [bc, br] = K.SHIRT_COLORS[slot % K.SHIRT_COLORS.length];
-    const shirt: K.Frame = outfit.own ? [bc + outfit.shirt[0], br + outfit.shirt[1]] : outfit.shirt;
-    const fig = new Container();
-    const add = (f: K.Frame, tint?: number) => {
-      const spr = new Sprite(s.char(f[0], f[1]));
-      spr.position.set(-8, -16);
-      if (tint !== undefined) spr.tint = tint;
-      fig.addChild(spr);
-    };
-    add(K.CHAR_BODY); add(K.PANTS); add(K.SHOES); add(shirt);
-    // sprite pixels: head x 4–11 rows 2–6 (eyes on row 5), pants rows 13–15
-    const face = new Graphics();
-    const px = (x: number, y: number, w: number, h: number, c: number, a = 1) => face.rect(x - 8, y - 16, w, h).fill({ color: c, alpha: a });
-    const pick = <T,>(list: readonly T[], k: number) => list[(look * k + 1) % list.length];
-    const skirt = pick(K.SKIRTS, 5);
-    px(3, 12, 10, 1, skirt).rect(-6, -3, 12, 2).fill(skirt); // skirt over the pants
-    px(5, 4, 2, 2, 0x2a3a8a); px(9, 4, 2, 2, 0x2a3a8a); // big eyes
-    px(5, 4, 1, 1, 0xffffff); px(9, 4, 1, 1, 0xffffff); // shine
-    px(5, 6, 1, 1, 0xff8aa0, 0.8); px(10, 6, 1, 1, 0xff8aa0, 0.8); // blush
-    fig.addChild(face);
-    const hair = pick(K.ANIME_HAIR, 7);
-    for (const f of K.HAIR_STYLES[look % K.HAIR_STYLES.length]) add(f, hair);
-    const bow = new Graphics().rect(1, -15, 3, 2).fill(pick(K.BOWS, 3)).rect(2, -15, 1, 2).fill({ color: 0x000000, alpha: 0.25 });
-    fig.addChild(bow);
-    if (outfit.item) add(outfit.item);
-    return fig;
+    return animeFigure(this.sheets, slot, outfit, look);
   }
 
   private make(at: Pt, labelText: string, pick: () => void, hoverLabel: boolean): Actor {
@@ -255,8 +302,39 @@ export class Actors {
     a.c.hitArea = new Rectangle(-w / 2, -h, w, h);
   }
 
+  /** Appoint this session's mayor president (null: nobody). Only one at a time. */
+  setPresident(id: string | null) {
+    this.president = id;
+    for (const [sid, m] of this.mayors) {
+      this.dressMayor(sid, m);
+      m.label.text = m.label.text.replace(/^★ /, "");
+      if (sid === id) m.label.text = "★ " + m.label.text;
+    }
+  }
+
+  private dressMayor(id: string, m: Actor) {
+    const sl = this.slots.get(id)!, pres = id === this.president;
+    this.dress(m, pres ? "president" : "mayor", () => {
+      const body = this.figure(sl, K.OUTFIT_MAYOR, false);
+      if (!pres) return body;
+      // gold aura on the ground, a red cape behind, a gold sash across the chest, a crown on the head
+      const px = (g: Graphics, x: number, y: number, w: number, h: number, c: number) => g.rect(x, y, w, h).fill(c);
+      const back = new Graphics().ellipse(0, -1, 10, 3).fill({ color: 0xffd23f, alpha: 0.5 });
+      px(back, -6, -12, 12, 10, 0xc1121f); px(back, -7, -4, 14, 3, 0x8d0b15);
+      const front = new Graphics();
+      front.moveTo(-4, -11).lineTo(4, -5).stroke({ color: 0xffd23f, width: 2 });
+      px(front, -3, -19, 6, 2, 0xffd23f); px(front, -3, -21, 1, 2, 0xffd23f); px(front, -1, -21, 2, 2, 0xffd23f); px(front, 2, -21, 1, 2, 0xffd23f);
+      const fig = new Container();
+      fig.addChild(back, body, front);
+      return fig;
+    });
+    m.label.style.fill = pres ? 0xffd23f : 0xffffff;
+  }
+
   private walk(a: Actor, to: Pt) {
-    a.path = findPath(this.city.walkable, { x: Math.round(a.tx), y: Math.round(a.ty) }, to);
+    const from = { x: Math.round(a.tx), y: Math.round(a.ty) };
+    // off-grid (just off the train): up the station road to the city edge first
+    a.path = a.tx < 0 ? [...[...STATION_ROUTE].reverse(), CITY_EDGE, ...findPath(this.city.walkable, CITY_EDGE, to)] : findPath(this.city.walkable, from, to);
   }
 
   /** A new district door sends the actor there at once; `wander` only decides what it does once idle. */
@@ -307,13 +385,14 @@ export class Actors {
       this.hqOwner[hqIdx] ??= s.id;
       const hq = this.city.hqDoors[hqIdx];
       let m = this.mayors.get(s.id);
+      const fresh = !m;
       if (!m) {
         const id = s.id, sl = slot;
         this.mayors.set(id, (m = this.make(hq, "", () => this.onPick("session", id), false)));
-        this.dress(m, "mayor", () => this.figure(sl, K.OUTFIT_MAYOR, false));
       }
+      this.dressMayor(s.id, m);
       const name = s.worktree ? `${s.project}/${s.worktree}` : s.project; // a worktree shows under its repo's name
-      m.label.text = name.length > 14 ? name.slice(0, 13) + "…" : name;
+      m.label.text = (this.president === s.id ? "★ " : "") + (name.length > 14 ? name.slice(0, 13) + "…" : name);
       const badge = s.status === "waiting" ? "!" : s.status === "idle" ? "z" : "";
       if (badge && !m.badge) {
         m.badge = new Text({ text: "", ...LIVE_TEXT, style: { ...LIVE_TEXT.style, fontSize: 9, fontWeight: "bold", fill: 0x9ad0ff } });
@@ -328,21 +407,30 @@ export class Actors {
         m.badge.children[0]!.visible = badge === "!";
         m.badge.visible = badge !== "";
       }
-      this.setHome(m, this.door(s.district), s.status === "working");
+      const dest = s.district === "home" ? hq : this.door(s.district); // idle: rest at its own HQ door
+      if (this.opts.motion && s.status === "idle") {
+        // idle sessions leave town by train
+        const gone = STATION_ROUTE[STATION_ROUTE.length - 1]!;
+        if (fresh) { m.inside = Infinity; m.c.visible = false; m.tx = gone.x; m.ty = gone.y; }
+        else if (m.inside !== undefined) m.inside = Infinity; // still on its way back: turn round
+        else if (!m.exit) {
+          m.exit = true;
+          m.path = [...findPath(this.city.walkable, { x: Math.round(m.tx), y: Math.round(m.ty) }, CITY_EDGE), ...STATION_ROUTE];
+        }
+        continue;
+      }
+      if (m.inside === Infinity) { // back on the next train
+        m.inside = msToNextStop(trainClock());
+        m.home = dest;
+        m.wait = 0;
+      }
+      if (m.exit) { m.exit = false; m.home = undefined; } // changed its mind: setHome walks it back
+      this.setHome(m, dest, s.status === "working");
     }
-    this.hqHits.forEach((h, i) => {
-      const s = byId.get(this.hqOwner[i] ?? "");
-      h.eventMode = s ? "static" : "none";
-      const [dim, plate] = h.children as [Graphics, Container];
-      dim.visible = !s;
-      plate.visible = !!s;
-      if (!s) return;
-      const [bg, name] = plate.children as [Graphics, Text];
-      const text = s.project.length > 7 ? s.project.slice(0, 6) + "…" : s.project;
-      if (name.text === text) return;
-      name.text = text;
-      const w = Math.min(name.width + 4, 30);
-      bg.clear().roundRect(-w / 2, -5, w, 10, 2).fill(0x2a2a3a).stroke({ color: 0xd8c08a, width: 1 });
+    this.hqLights.clear();
+    this.city.hqDoors.forEach((d, i) => {
+      const st = byId.get(this.hqOwner[i] ?? "")?.status;
+      if (st) this.hqLights.rect(d.x * TILE + 4, (d.y - 2) * TILE + 3, 8, 7).fill(st === "working" ? 0xffd860 : st === "waiting" ? 0xe08040 : 0x6a8aa8);
     });
 
     // employees: working ones only, newest first, capped per session
@@ -403,6 +491,19 @@ export class Actors {
       if (a.home && !same(at, a.home)) this.walk(a, a.home);
       return;
     }
+    if (a.visit && this.city.decorDoors.some((d) => same(d, at))) {
+      a.visit = false;
+      a.inside = 3000 + 5000 * this.opts.rand();
+      a.c.visible = false;
+      return;
+    }
+    if (a.seat && same(at, a.seat)) {
+      a.sit = 5000 + 8000 * this.opts.rand();
+      a.seat = undefined;
+      return;
+    }
+    a.seat = undefined;
+    a.visit = false; // the walk ended somewhere else (thrown, blocked)
     a.wait -= dtMs;
     if (a.wait > 0) return;
     // never settle on a tile someone else stands on or is heading to
@@ -413,13 +514,22 @@ export class Actors {
       busy.add(`${end.x},${end.y}`);
     }
     const taken = (p: Pt) => busy.has(`${p.x},${p.y}`);
-    const to = a.citizen ? randomRoadTile(this.city.walkable, this.opts.rand, taken) : restTarget(a.home!, true, this.city.walkable, this.opts.rand, taken);
+    // some townsfolk pop into one of the decor houses instead of strolling
+    a.visit = !!a.citizen && this.opts.rand() < 0.3;
+    const free = a.citizen && !a.visit && this.opts.rand() < 0.3 ? this.city.seats.filter((p) => !taken(p)) : [];
+    if (free.length) a.seat = free[Math.floor(this.opts.rand() * free.length)];
+    const to = a.seat ? a.seat : a.visit ? this.city.decorDoors[Math.floor(this.opts.rand() * this.city.decorDoors.length)]! : a.citizen ? randomRoadTile(this.city.walkable, this.opts.rand, taken) : restTarget(a.home!, true, this.city.walkable, this.opts.rand, taken);
     this.walk(a, to);
     a.wait = 1000 + 3000 * this.opts.rand();
   }
 
   /** A rock landed at (x, y) in the layer: whoever it hits falls over, says "Ối!" and gets up again. */
-  hit(at: Pt): boolean {
+  hit(at: Pt, radius = 0): boolean {
+    if (radius > 0) {
+      const near = [...this.mayors.values(), ...this.staff.values(), ...this.citizens].filter((a) => a.inside === undefined && Math.hypot(a.c.x - at.x, a.c.y - 8 - at.y) <= radius);
+      near.forEach((a) => this.knock(a, true));
+      return near.length > 0;
+    }
     const a = this.nearest(at);
     if (!a) return false;
     this.knock(a);
@@ -427,7 +537,7 @@ export class Actors {
   }
 
   private nearest(at: Pt): Actor | undefined {
-    const all = [...this.mayors.values(), ...this.staff.values(), ...this.citizens];
+    const all = [...this.mayors.values(), ...this.staff.values(), ...this.citizens].filter((a) => a.inside === undefined);
     return all[nearestHit(all.map((x) => ({ x: x.c.x, y: x.c.y })), at)];
   }
 
@@ -435,8 +545,9 @@ export class Actors {
   grab(at: Pt, ms = 0): boolean {
     const a = this.nearest(at);
     if (!a) return false;
-    a.down = a.fly = undefined;
+    a.down = a.fly = a.sit = undefined;
     a.fig.rotation = 0;
+    a.fig.tint = 0xffffff;
     if (a.ouch) a.ouch.visible = false;
     a.path = [];
     a.c.zIndex = 1e6;
@@ -481,8 +592,10 @@ export class Actors {
       if (Math.hypot(a.tx - home.x, a.ty - home.y) <= 6) a.cheer = CHEER_MS;
   }
 
-  private knock(a: Actor) {
+  private knock(a: Actor, charred = false) {
     a.down = DOWN_MS;
+    a.sit = undefined;
+    a.fig.tint = charred ? CHAR : 0xffffff;
     a.fig.rotation = (a.fig.scale.x < 0 ? -1 : 1) * Math.PI / 2;
     if (!a.ouch) {
       a.ouch = new Text({ text: "Ối!", ...LIVE_TEXT, style: { ...LIVE_TEXT.style, fontSize: 8, fontWeight: "bold", fill: 0xffd23f } });
@@ -516,12 +629,31 @@ export class Actors {
         this.knock(a);
         continue;
       }
+      if (a.inside !== undefined) {
+        a.inside -= dtMs;
+        if (a.inside > 0) continue;
+        a.inside = undefined;
+        a.c.visible = true;
+        a.wait = 500;
+      }
       if (a.down !== undefined) {
         a.down -= dtMs;
         if (a.down > 0) continue; // lying on the ground: no walking
         a.down = undefined;
         a.fig.rotation = 0;
+        a.fig.tint = 0xffffff;
         if (a.ouch) a.ouch.visible = false;
+      }
+      if (a.say && (a.say.ms -= dtMs) <= 0) { a.say.t.visible = false; a.say.ms = 0; }
+      if (a.sit !== undefined) {
+        if ((a.sit -= dtMs) > 0) { // on the bench below its tile, facing the viewer
+          a.fig.scale.x = 1;
+          a.c.position.set(a.tx * TILE + 8, (a.ty + 1) * TILE + 9);
+          a.c.zIndex = a.c.y;
+          continue;
+        }
+        a.sit = undefined;
+        a.wait = 500;
       }
       let step = dtMs * SPEED, hx = 0, hy = 0;
       while (step > 0 && a.path.length) {
@@ -530,6 +662,12 @@ export class Actors {
         if (d) { hx = Math.sign(dx); hy = Math.sign(dy); }
         if (d <= step) { a.tx = n.x; a.ty = n.y; a.path.shift(); step -= d; }
         else { a.tx += (dx / d) * step; a.ty += (dy / d) * step; step = 0; }
+      }
+      if (a.exit && !a.path.length) {
+        const gone = STATION_ROUTE[STATION_ROUTE.length - 1]!;
+        if (same({ x: Math.round(a.tx), y: Math.round(a.ty) }, gone)) { a.exit = false; a.inside = Infinity; a.c.visible = false; continue; }
+        // dropped or thrown mid-street: head for the station again
+        a.path = [...findPath(this.city.walkable, { x: Math.round(a.tx), y: Math.round(a.ty) }, CITY_EDGE), ...STATION_ROUTE];
       }
       if (!a.path.length) this.rest(a, dtMs);
       let ox = 0, oy = 0, bob = 0;

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CanvasTextMetrics, Container, EventBoundary, Texture, FederatedPointerEvent } from "pixi.js";
 import "pixi.js/events";
 import { drawRoom, fitBoard } from "../src/client/roomDraw.js";
-import { OFFICE_THEME, ROOM_THEMES } from "../src/client/rooms.js";
+import { LOBBY_THEME, OFFICE_THEME, ROOM_THEMES } from "../src/client/rooms.js";
 
 function tap(boundary: EventBoundary, x: number, y: number) {
   for (const type of ["pointerdown", "pointerup"] as const) {
@@ -34,6 +34,21 @@ describe("room taps without a preceding hover (Pixi hit testing)", () => {
     }
     tap(b, 8 * 16 + 8, 3 * 16 + 8);
     expect(onPick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the review lobby", () => {
+  it("only a lit room can be tapped, and it says which one", () => {
+    const onFurniture = vi.fn();
+    const root = new Container();
+    const doors = [{ label: "#12", live: true }, { label: "Trống", live: false }, { label: "Trống", live: false }, { label: "Trống", live: false }];
+    root.addChild(drawRoom({ indoor: () => Texture.WHITE } as never, LOBBY_THEME, [], ["a"], null, onFurniture, doors));
+    const b = new EventBoundary(root);
+    tap(b, 44, 98); // first room of the cut-open building
+    expect(onFurniture).toHaveBeenLastCalledWith("door:0");
+    onFurniture.mockClear();
+    tap(b, 100, 98); // second room, empty
+    expect(onFurniture).not.toHaveBeenCalled();
   });
 });
 

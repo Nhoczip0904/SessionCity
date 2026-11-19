@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Employee, Session, SessionDetail } from "../src/shared/types.js";
-import { WORK_JOBS, deskSpots, workJob, fileRows, officeLayout, roomOccupants, tokenRows } from "../src/client/rooms.js";
+import { WORK_JOBS, deskSpots, workJob, fileRows, officeLayout, reviewBoard, meetings, lobbyDoors, hqRooms, roomOccupants, tokenRows } from "../src/client/rooms.js";
 
 const z = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const sess = (o: Partial<Session>): Session => ({ id: "s", project: "p", cwd: "", lastActivity: "", status: "working", district: "lab", tokens: { ...z, byModel: {} }, employees: [], ...o });
@@ -122,5 +122,52 @@ describe("fileRows", () => {
   it("done staff newest first", () => {
     const r = fileRows(detail({ staff: [emp({ id: "a", status: "done", endedAt: "1" }), emp({ id: "w" }), emp({ id: "b", status: "done", endedAt: "2" })] }));
     expect(r.map((e) => e.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("review meeting", () => {
+  const emp = (id: string, sessionId: string) => ({ id, sessionId, type: "reviewer", status: "working", district: "townhall", startedAt: id } as never);
+  it("each PR gets its own room: its session and that session's working staff only", () => {
+    const ss = [sess({ id: "a", district: "townhall", reviewing: "#12" }), sess({ id: "b", district: "townhall", reviewing: "#13" })];
+    const es = [emp("e1", "a"), emp("e2", "a"), emp("e3", "b")];
+    expect(roomOccupants("review", ss, es, "a").people.map((p) => p.id)).toEqual(["a", "e1", "e2"]);
+    expect(roomOccupants("review", ss, es, "b").people.map((p) => p.id)).toEqual(["b", "e3"]);
+  });
+  it("lists the reviewing sessions, one meeting each", () => {
+    expect(meetings([sess({ id: "a", reviewing: "#12" }), sess({ id: "b" }), sess({ id: "c", reviewing: "#9" })]).map((s) => s.id)).toEqual(["a", "c"]);
+  });
+  it("meeting chairs sit at least 2 tiles apart, for names to fit", () => {
+    const s = deskSpots(12, "meeting");
+    expect(s).toHaveLength(12);
+    for (const [i, a] of s.entries()) for (const b of s.slice(i + 1)) expect(a.y !== b.y || Math.abs(a.x - b.x) >= 2).toBe(true);
+  });
+  it("the lobby has a door per live review, then empty rooms: 4 at least, 8 at most", () => {
+    expect(lobbyDoors([])).toEqual([0, 1, 2, 3].map(() => ({ label: "Trống", live: false })));
+    const d = lobbyDoors([sess({ id: "b", reviewing: "#9" }), sess({ id: "a", reviewing: "#12" })]);
+    expect(d.slice(0, 3)).toEqual([{ label: "#12", live: true }, { label: "#9", live: true }, { label: "Trống", live: false }]);
+    expect(lobbyDoors(Array.from({ length: 11 }, (_, i) => sess({ id: `s${i}`, reviewing: `#${i}` })))).toHaveLength(8);
+    expect(deskSpots(5, "lobby")).toEqual([]);
+  });
+  it("the board names the PR being reviewed, or nothing", () => {
+    expect(reviewBoard([sess({ id: "a", reviewing: "#12 Fix login" })], "a")).toBe("Họp review: #12 Fix login");
+    expect(reviewBoard([sess({ id: "a" })], "a")).toBeNull();
+  });
+});
+
+describe("hqRooms", () => {
+  it("is always 10 rooms: a lit room per session (stable by id), the rest empty", () => {
+    expect(hqRooms([])).toHaveLength(10);
+    expect(hqRooms([]).every((d) => !d.live && !d.id)).toBe(true);
+    const r = hqRooms([sess({ id: "b", project: "pb", status: "idle" }), sess({ id: "a", project: "pa" })]);
+    expect(r.slice(0, 2)).toEqual([{ label: "pa", live: true, id: "a", status: "working" }, { label: "pb", live: true, id: "b", status: "idle" }]);
+    expect(r[2]).toEqual({ label: "Trống", live: false });
+  });
+  it("each room seats the session's working staff around the table, at most 5", () => {
+    const staff = (n: number, sid: string) => Array.from({ length: n }, (_, i) => emp({ id: sid + i, sessionId: sid }));
+    const r = hqRooms([sess({ id: "a" }), sess({ id: "b" })], [...staff(7, "a"), ...staff(2, "b"), emp({ id: "x", sessionId: "b", status: "done" })]);
+    expect(r.map((d) => d.staff)).toEqual([5, 2, ...Array(8).fill(undefined)]);
+  });
+  it("sessions beyond 10 get no room", () => {
+    expect(hqRooms(Array.from({ length: 12 }, (_, i) => sess({ id: String(i).padStart(2, "0") })))).toHaveLength(10);
   });
 });

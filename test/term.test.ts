@@ -42,7 +42,7 @@ function setup() {
   };
   const deps = { makeTerm: () => term, WebSocket: FakeWS as unknown as typeof WebSocket } as TermDeps;
   const onClose = vi.fn();
-  openTerminal({ sessionId: "abc", title: "proj", token: "t k", onClose }, deps);
+  openTerminal({ sessionId: "abc", title: "proj", onClose }, deps);
   return { term, ws: FakeWS.last, onClose };
 }
 
@@ -55,7 +55,7 @@ describe("openTerminal", () => {
   it("builds url after fit, shows title, is open", () => {
     const { term, ws } = setup();
     expect(term.fit).toHaveBeenCalled();
-    expect(ws.url).toBe(`ws://${location.host}/pty?token=t%20k&session=abc&cols=100&rows=30`);
+    expect(ws.url).toBe(`ws://${location.host}/pty?session=abc&cols=100&rows=30`);
     expect(document.body.textContent).toContain("Terminal — proj");
     expect(isTerminalOpen()).toBe(true);
   });

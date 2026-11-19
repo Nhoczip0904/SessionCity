@@ -1,4 +1,4 @@
-// Floating chat windows: drag by the title bar, resize from any edge or corner, minimize to the bar.
+// Floating chat windows: drag by the title bar, resize from any edge or corner, minimize to a bar docked at the page bottom (flies back up when restored).
 export interface Geo { x: number; y: number; w: number; h: number; min: boolean }
 
 const PULL = 12; // px within which a window is drawn flush to another
@@ -10,10 +10,11 @@ const between = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, 
 
 /** Keeps the window on the page, under the HUD, and no smaller than the minimum. */
 export function clampGeo(g: Geo, vw: number, vh: number): Geo {
-  const w = Math.min(Math.max(g.w, MIN_W), vw);
+  const free = vw > 700 ? vw - SIDE_W : vw; // the session menu (hidden on a narrow page) is not to be covered
+  const w = Math.min(Math.max(g.w, MIN_W), free);
   const h = Math.min(Math.max(g.h, MIN_H), vh - TOP);
   const eh = g.min ? BAR_H : h;
-  return { w, h, min: g.min, x: between(g.x, 0, vw - w), y: between(g.y, TOP, vh - eh) };
+  return { w, h, min: g.min, x: between(g.x, 0, free - w), y: between(g.y, TOP, vh - eh) };
 }
 
 /** Draws a moved window flush against the nearest edges of the others (edges touching, or lined up); past PULL it overlaps freely. */
@@ -55,11 +56,12 @@ export function saveGeo(id: string, g: Geo): void {
 }
 
 export function floatable(box: HTMLElement, bar: HTMLElement, start: Geo, save: (g: Geo) => void): { geo(): Geo; destroy(): void } {
-  let g = clampGeo(start, innerWidth, innerHeight);
+  let want = start; // where the user put it: a narrow browser only squeezes what is drawn, a wide one gives it back
+  let g = clampGeo(want, innerWidth, innerHeight);
   const apply = () => {
-    g = clampGeo(g, innerWidth, innerHeight);
+    g = clampGeo(want, innerWidth, innerHeight);
     box.style.left = `${g.x}px`;
-    box.style.top = `${g.y}px`;
+    box.style.top = `${g.min ? Math.max(TOP, innerHeight - BAR_H) : g.y}px`; // g.y keeps the spot to fly back to
     box.style.width = `${g.w}px`;
     box.style.height = `${g.h}px`;
     box.classList.toggle("min", g.min);
@@ -70,30 +72,33 @@ export function floatable(box: HTMLElement, bar: HTMLElement, start: Geo, save: 
   let drag: { fromX: number; fromY: number; from: Geo; dir: string } | null = null;
   const begin = (e: MouseEvent, dir: string) => {
     drag = { fromX: e.clientX, fromY: e.clientY, from: g, dir };
+    box.classList.add("drag"); // no flying while the pointer holds it
     e.preventDefault();
   };
   const move = (e: MouseEvent) => {
     if (!drag) return;
     const { from: f, dir } = drag;
     const dx = e.clientX - drag.fromX, dy = e.clientY - drag.fromY;
-    if (dir === "move") return void ((g = snapGeo({ ...f, x: f.x + dx, y: f.y + dy }, others())), apply());
+    if (dir === "move") return void ((want = snapGeo({ ...f, x: f.x + dx, y: f.min ? f.y : f.y + dy }, others())), apply());
     let { x, y, w, h } = f;
     if (dir.includes("e")) w = Math.max(MIN_W, f.w + dx);
     if (dir.includes("s")) h = Math.max(MIN_H, f.h + dy);
     if (dir.includes("w")) (w = Math.max(MIN_W, f.w - dx), (x = f.x + f.w - w));
     if (dir.includes("n")) (h = Math.max(MIN_H, f.h - dy), (y = f.y + f.h - h));
-    g = { x, y, w, h, min: false };
+    want = { x, y, w, h, min: false };
     apply();
   };
   const up = () => {
     if (!drag) return;
     drag = null;
-    save(g);
+    box.classList.remove("drag");
+    want = g; // what was let go of, kept on the page
+    save(want);
   };
   const toggle = () => {
-    g = { ...g, min: !g.min };
+    want = { ...g, min: !g.min };
     apply();
-    save(g);
+    save(want);
   };
 
   const minb = document.createElement("button");
@@ -111,10 +116,10 @@ export function floatable(box: HTMLElement, bar: HTMLElement, start: Geo, save: 
     box.append(h);
   }
   bar.addEventListener("pointerdown", (e) => {
-    if (!(e.target as Element).closest("button")) begin(e as MouseEvent, "move");
+    if (!(e.target as Element).closest("button, input")) begin(e as MouseEvent, "move");
   });
   bar.addEventListener("dblclick", (e) => {
-    if (!(e.target as Element).closest("button")) toggle();
+    if (!(e.target as Element).closest("button, input")) toggle();
   });
   box.addEventListener("pointerdown", raise);
   addEventListener("pointermove", move);
@@ -123,7 +128,7 @@ export function floatable(box: HTMLElement, bar: HTMLElement, start: Geo, save: 
   apply();
   raise();
   return {
-    geo: () => g,
+    geo: () => want,
     destroy() {
       removeEventListener("pointermove", move);
       removeEventListener("pointerup", up);

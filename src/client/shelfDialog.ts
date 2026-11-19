@@ -1,4 +1,4 @@
-import type { Employee, PrRow, RepoPrs, Shelf } from "../shared/types.js";
+import type { Employee, PrRow, RepoPrs, Session, Shelf } from "../shared/types.js";
 import { el, frame } from "./launcher.js";
 import type { tokenRows } from "./rooms.js";
 
@@ -35,7 +35,7 @@ export function renderFilesDialog(list: Employee[], onPick: (id: string) => void
   return root;
 }
 
-export function renderShelfDialog(load: () => Promise<Shelf>, read: (id: string) => Promise<{ text: string; truncated: boolean }>): HTMLElement {
+export function renderShelfDialog(load: () => Promise<Shelf>, read: (id: string) => Promise<{ text: string; truncated: boolean }>, reveal?: (id: string) => void): HTMLElement {
   const body = el("div");
   const root = frame("Kệ sách", body);
   let shelf: Shelf | null = null;
@@ -43,7 +43,16 @@ export function renderShelfDialog(load: () => Promise<Shelf>, read: (id: string)
     body.replaceChildren();
     if (!shelf!.files.length && !shelf!.skills.length) return void body.append(el("div", "Không thấy file hay skill nào", "msg"));
     body.append(el("h3", "File nạp sẵn"));
-    for (const f of shelf!.files) body.append(button(`${SCOPE[f.scope]} — ${f.path}`, "row", () => open(f.id)));
+    for (const f of shelf!.files) {
+      const line = el("div", undefined, "frow");
+      line.append(button(`${SCOPE[f.scope]} — ${f.path}`, "row", () => open(f.id)));
+      if (reveal) {
+        const r = button("Mở", "reveal", () => reveal(f.id));
+        r.title = "Hiện file trong Explorer";
+        line.append(r);
+      }
+      body.append(line);
+    }
     body.append(el("h3", "Skill"));
     for (const s of shelf!.skills) {
       const scope = s.scope === "plugin" ? `plugin ${s.plugin ?? ""}`.trim() : SCOPE[s.scope];
@@ -74,7 +83,7 @@ const REVIEW: Record<NonNullable<PrRow["review"]>, [string, string]> = { approve
 const CI: Record<NonNullable<PrRow["ci"]>, [string, string]> = { pass: ["CI ✓", "ok"], fail: ["CI ✗", "bad"], pending: ["CI ⏳", "wait"] };
 
 /** One PR line: a link to GitHub when the server vouched for the URL, plain text otherwise. */
-function prLine(p: PrRow): HTMLElement {
+function prLine(p: PrRow, sessions: Session[]): HTMLElement {
   const line = p.url ? el("a", undefined, "pr") : el("div", undefined, "pr");
   if (line instanceof HTMLAnchorElement) {
     line.href = p.url!;
@@ -85,9 +94,12 @@ function prLine(p: PrRow): HTMLElement {
   meta.append(el("span", `👤 ${p.author ?? "?"}`, "who"));
   const tags: [string, string][] = [];
   if (p.draft) tags.push(["Draft", "draft"]);
+  if (p.conflict) tags.push(["Xung đột", "bad"]);
   tags.push(p.review ? REVIEW[p.review] : ["Chưa review", "none"], p.ci ? CI[p.ci] : ["Chưa có CI", "none"]);
   for (const [text, cls] of tags) meta.append(" ", el("span", text, `tag ${cls}`));
   line.append(el("span", `#${p.number}`, "num"), " ", el("span", p.title, "t"), meta);
+  // shortcut: matched by branch name alone, so two repos with the same branch name would both show it
+  if (p.branch) for (const s of sessions) if (s.branch === p.branch) meta.append(" ", el("span", `💬 ${s.title || s.project}`, "sess"));
   return line;
 }
 
@@ -95,7 +107,7 @@ function prLine(p: PrRow): HTMLElement {
  * The PR board, a panel pinned to the main screen: open PRs of the repos the sessions work in.
  * Làm mới skips the server's cache; while on the page it also reloads by itself every `everyMs`, keeping the list up.
  */
-export function renderPrBoard(load: (fresh: boolean) => Promise<RepoPrs[]>, everyMs = 120_000): HTMLElement {
+export function renderPrBoard(load: (fresh: boolean) => Promise<RepoPrs[]>, everyMs = 20_000, sessions: () => Session[] = () => []): HTMLElement {
   const body = el("div", undefined, "body");
   const refresh = button("Làm mới", "refresh", () => void show(true));
   const fold = button("▾", "fold", () => {
@@ -114,14 +126,25 @@ export function renderPrBoard(load: (fresh: boolean) => Promise<RepoPrs[]>, ever
     refresh.disabled = true;
     try {
       const repos = await load(fresh);
+      const top = body.scrollTop; // a redraw must not throw the reader back to the top
       body.replaceChildren();
       if (!repos.length) body.append(el("div", "Chưa có session nào trong repo git", "msg"));
       for (const r of repos) {
-        body.append(el("h3", r.repo));
+        const h = el("h3", r.url ? "" : r.repo);
+        if (r.url) {
+          const a = document.createElement("a");
+          a.href = r.url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.textContent = r.repo;
+          h.append(a);
+        }
+        body.append(h);
         if (r.error) body.append(el("div", r.error, "note"));
         else if (!r.prs.length) body.append(el("div", "Không có PR đang mở", "note"));
-        else body.append(...r.prs.map(prLine));
+        else body.append(...r.prs.map((p) => prLine(p, sessions())));
       }
+      body.scrollTop = top;
     } catch {
       if (!quiet) body.replaceChildren(el("div", "Không tải được danh sách PR", "msg"));
     } finally {
@@ -130,6 +153,7 @@ export function renderPrBoard(load: (fresh: boolean) => Promise<RepoPrs[]>, ever
   };
   void show(false);
   // shortcut: never cleared, the board lives as long as the page
-  setInterval(() => root.isConnected && void show(false, true), everyMs);
+  setInterval(() => root.isConnected && !document.hidden && void show(false, true), everyMs);
+  document.addEventListener("visibilitychange", () => root.isConnected && !document.hidden && void show(false, true));
   return root;
 }

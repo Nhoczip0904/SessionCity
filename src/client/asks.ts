@@ -56,7 +56,10 @@ export function fillAsks(body: HTMLElement, asks: AskRow[], ctx: AskCtx): void {
       no.onclick = reply(false);
       more.onclick = () => ctx.open(a.session);
       card.append(who, el("pre", a.summary), el("div", undefined, "ask-acts"), err);
-      card.querySelector(".ask-acts")!.append(yes, no, more);
+      // AskUserQuestion needs chosen answers, which only the chat card can send.
+      const acts = card.querySelector(".ask-acts")!;
+      if (a.tool === "AskUserQuestion") acts.append(el("span", "Trả lời trong chat", "ask-hint"), no, more);
+      else acts.append(yes, no, more);
       return card;
     }),
   );

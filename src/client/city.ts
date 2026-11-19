@@ -1,10 +1,11 @@
-import { Container, Graphics, Text, Ticker } from "pixi.js";
+import { Container, Graphics, Sprite, Text, Ticker } from "pixi.js";
 import type { District } from "../shared/types.js";
 import { districtInfo } from "../shared/districts.js";
 import { drawTiles } from "./cityDraw.js";
 import { FOREST } from "./forest.js";
 import type { Pt } from "./path.js";
 import { onRoad, type Road } from "./roads.js";
+import * as K from "./tiles.js";
 import type { Sheets } from "./tiles.js";
 
 export const TILE = 16;
@@ -21,13 +22,13 @@ export const ROADS: Road[] = [
   { x: 2, y: 2, w: 26, h: 2 }, // north, ends at the bank
   { x: 2, y: 28, w: 25, h: 2 }, // south, ends at the bank
   { x: 14, y: 2, w: 2, h: 15 }, // side street, north of the main road
-  { x: 19, y: 15, w: 2, h: 15 }, // side street, south, offset from the northern one
+  { x: 19, y: 22, w: 2, h: 8 }, // side street below the HQ, down to the south road
   { x: 44, y: 2, w: 2, h: 28 }, // east avenue
   { x: 33, y: 2, w: 13, h: 2 }, // east bank, north lane
   { x: 32, y: 28, w: 14, h: 2 }, // east bank, south lane
   // the main road and both avenues run on out of the city into the forest (see forest.ts); each overlaps the road it continues
   { x: -FOREST_ROAD, y: 15, w: FOREST_ROAD + 4, h: 2 },
-  { x: 44, y: 15, w: FOREST_ROAD + 4, h: 2 },
+  { x: 44, y: 15, w: 7, h: 2 }, // east: ends in the sand, where the drawn road stops
   { x: 2, y: -FOREST_ROAD, w: 2, h: FOREST_ROAD + 4 },
   { x: 44, y: -FOREST_ROAD, w: 2, h: FOREST_ROAD + 4 },
   { x: 2, y: 28, w: 2, h: FOREST_ROAD + ROWS - 28 },
@@ -38,6 +39,8 @@ const isRoad = (x: number, y: number) => ROADS.some((r) => onRoad(r, x, y));
 const PATHS: Road[] = [
   { x: 4, y: 9, w: 10, h: 1 }, { x: 16, y: 9, w: 12, h: 1 }, { x: 34, y: 9, w: 10, h: 1 },
   { x: 4, y: 22, w: 15, h: 1 }, { x: 21, y: 22, w: 7, h: 1 }, { x: 34, y: 22, w: 10, h: 1 },
+  // the park's pavement: from the west avenue, and a branch up to the south road
+  { x: 4, y: 36, w: 24, h: 1 }, { x: 16, y: 30, w: 1, h: 6 },
 ];
 const isPath = (x: number, y: number) => PATHS.some((r) => onRoad(r, x, y)) && !isRoad(x, y);
 
@@ -53,17 +56,26 @@ const PLOTS: Plot[] = [
   { id: "review", x: 35, y: 4, w: 9, h: 5, up: false, roof: 0x8e5bb5, wall: 0xdccbe8, style: "tiles" },
   { id: "factory", x: 35, y: 10, w: 9, h: 5, up: false, roof: 0x7a6a58, wall: 0xb8a890, style: "flat" },
   { id: "watchtower", x: 5, y: 17, w: 9, h: 5, up: false, roof: 0x5d6e5a, wall: 0xa8b0a0, style: "flat" },
-  { id: "home", x: 4, y: 23, w: 9, h: 5, up: false, roof: 0xc96b4b, wall: 0xf2d8b8, style: "ridge" },
   { id: "airport", x: 35, y: 17, w: 9, h: 5, up: false, roof: 0x8f969c, wall: 0xc8ccd0, style: "flat" },
   { id: "site", x: 35, y: 23, w: 9, h: 5, up: false, roof: 0xb8874a, wall: 0xe0b060, style: "flat" },
 ];
-// HQ: two-tile houses either side of the southern side street, facing the footpath (row 22) or the south road (row 28)
-const HQ: { x: number; y: number; up: boolean }[] = [];
-for (const y of [18, 24]) for (const x of [15, 17, 21, 23, 25]) HQ.push({ x, y, up: false });
-// paved square below the city, west of the river
-const PLAZA = { x: 5, y: 32, w: 20, h: 10 }; // the city above it is rows 0–31
+// HQ: one big hall (White-House style) facing the footpath (row 22); each of its 10 rooms has a door on the front, one per session
+const HALL = { x: 14, y: 18, w: 12, h: 4 };
+const HQ_ROOMS = 10;
+const DECOR: { x: number; y: number; up: boolean; h: number; side: number }[] = [];
+// decor: empty houses packed side by side along the west and east edges outside the avenues, low (3 tall) next to tall (5-6).
+// No footpath or front door each: the door is on the side facing the avenue. They do nothing, townsfolk just pop in and out.
+// two runs per side, 4-14 and 17-38: rows 15-16 stay open for the main road leaving the city
+const HEIGHTS: Record<number, number[][]> = { 0: [[3, 5, 3], [6, 3, 6, 3, 4]], 46: [[3, 5, 3], [3, 6, 3, 4, 6]] };
+for (const x of [0, 46] as const) HEIGHTS[x].forEach((run, i) => { let y = i ? 17 : 4; for (const h of run) { DECOR.push({ x, y, up: false, h, side: x ? -1 : 1 }); y += h; } });
+// the park fills the land below the city, between the avenue and the river: its top edge touches the pavement of the south road (row 30)
+const PLAZA = { x: 4, y: 31, w: 24, h: 12 }; // the city above it is rows 0–30
+
+/** Park benches: the pavement tile a sitter walks to; the bench is the tile below it. */
+const SEATS: Pt[] = [3, 8, 11, 16, 21].map((dx) => ({ x: PLAZA.x + dx, y: PLAZA.y + 5 }));
 
 const door = (x: number, y: number, h: number, up: boolean): Pt => ({ x, y: up ? y - 1 : y + h });
+const sideDoor = (d: { x: number; y: number; h: number; side: number }): Pt => ({ x: d.side > 0 ? d.x + 2 : d.x - 1, y: d.y + d.h - 1 }); // the avenue tile beside the ground floor
 const hash = (x: number, y: number) => (((x * 73856093) ^ (y * 19349663)) >>> 0) % 1000;
 const FONT = 'Consolas, "DejaVu Sans Mono", "Courier New", monospace';
 const LABEL_STYLE = { fontFamily: FONT, fontSize: 8, fill: 0xffffff, stroke: { color: 0x1a1a1a, width: 2 } };
@@ -73,8 +85,10 @@ export function buildCity(sheets: Sheets | null) {
   const walkable = Array.from({ length: ROWS }, (_, y) => Array.from({ length: COLS }, (_, x) => isRoad(x, y) || isPath(x, y)));
   const doors = {} as Record<District, Pt>;
   for (const p of PLOTS) doors[p.id] = door(p.x + (p.w >> 1), p.y, p.h, p.up);
-  const hqDoors = HQ.map((h) => door(h.x, h.y, 4, h.up));
-  for (const d of [...Object.values(doors), ...hqDoors]) {
+  const hqDoors = Array.from({ length: HQ_ROOMS }, (_, i) => door(HALL.x + 1 + i, HALL.y, HALL.h, false));
+  doors.home = hqDoors[0]!; // no residential plot: an idle session rests at its own HQ door (actors) or leaves by train
+  const decorDoors = DECOR.map(sideDoor);
+  for (const d of [...Object.values(doors), ...hqDoors, ...decorDoors]) {
     if (!walkable[d.y][d.x]) throw new Error(`door ${d.x},${d.y} is not on a road or path`);
   }
   const built = new Set<number>();
@@ -82,20 +96,22 @@ export function buildCity(sheets: Sheets | null) {
     for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) built.add(j * COLS + i);
   };
   PLOTS.forEach((p) => mark(p.x, p.y, p.w, p.h));
-  HQ.forEach((h) => mark(h.x, h.y, 2, 4));
+  mark(HALL.x, HALL.y, HALL.w, HALL.h);
+  DECOR.forEach((h) => mark(h.x, h.y, 2, h.h));
   mark(PLAZA.x, PLAZA.y, PLAZA.w, PLAZA.h); // no trees on the square
   const water: Pt[] = []; // river tiles not under the bridge
   for (let y = 0; y < ROWS; y++) for (let x = RIVER_L[y]; x < RIVER_L[y] + 3; x++) if (!isRoad(x, y)) water.push({ x, y });
 
   const plots = PLOTS.map((p) => ({ id: p.id, px: { x: p.x * TILE, y: p.y * TILE, w: p.w * TILE, h: p.h * TILE } }));
-  const hqPlots = HQ.map((h) => ({ x: h.x * TILE, y: h.y * TILE, w: 2 * TILE, h: 4 * TILE }));
+  const hqPlots = [{ x: HALL.x * TILE, y: HALL.y * TILE, w: HALL.w * TILE, h: HALL.h * TILE }];
+  const decorPlots = DECOR.map((h) => ({ x: h.x * TILE, y: h.y * TILE, w: 2 * TILE, h: h.h * TILE }));
   const plaza = { x: PLAZA.x * TILE, y: PLAZA.y * TILE, w: PLAZA.w * TILE, h: PLAZA.h * TILE };
 
   function draw(): Container {
     const root = new Container();
     root.addChild(drawRiver(water));
     root.addChild(sheets
-      ? drawTiles(sheets, { cols: COLS, rows: ROWS, isRoad, isPath, isRiver, roads: ROADS, plots: PLOTS, hq: HQ, built, hash })
+      ? drawTiles(sheets, { cols: COLS, rows: ROWS, isRoad, isPath, isRiver, roads: ROADS, plots: PLOTS, hall: HALL, hq: DECOR, built, hash })
       : drawProcedural());
     root.addChild(drawBridge());
     for (const p of PLOTS) {
@@ -103,10 +119,10 @@ export function buildCity(sheets: Sheets | null) {
       const cy = sheets ? (p.y + (p.up ? 2 : 0) + (p.h - 2) / 2) * TILE : p.y * TILE + p.h * TILE / 2 + 2;
       drawLabel(root, p, Math.round(p.x * TILE + (p.w * TILE) / 2 - 1), Math.round(cy - 4));
     }
-    const hqLabel = new Text({ text: "Trụ sở", style: LABEL_STYLE, resolution: 2 });
+    const hqLabel = new Text({ text: "Trụ sở", style: LABEL_STYLE, resolution: 4 });
     hqLabel.anchor.set(0.5);
     hqLabel.position.set(24 * TILE, 23.5 * TILE);
-    root.addChild(hqLabel, drawPlaza());
+    root.addChild(hqLabel, sheets ? drawPark(sheets) : drawPlaza());
     return root;
   }
 
@@ -153,12 +169,14 @@ export function buildCity(sheets: Sheets | null) {
       }
 
     for (const p of PLOTS) drawBuilding(g, p);
-    HQ.forEach((h, i) => {
-      const px = h.x * T, py = h.y * T, w = 2 * T, hh = 4 * T;
+    g.rect(HALL.x * T + 1, HALL.y * T + 1, HALL.w * T - 2, HALL.h * T - 2).fill(0xdedee8);
+    DECOR.forEach((h, i) => {
+      const px = h.x * T, py = h.y * T, w = 2 * T, hh = (h.h ?? 4) * T;
       g.rect(px + 1, py + 1, w - 2, hh - 2).fill(0x3a3a44);
       g.rect(px + 2, py + 2, w - 4, hh - 4).fill(i % 2 ? 0x8a7a68 : 0x7a8a98);
-      for (let r = 0; r < 3; r++) g.rect(px + 6, py + 10 + r * 16, w - 12, 6).fill(0xbfe0f0);
-      g.rect(px + 12, h.up ? py + 1 : py + hh - 5, 8, 4).fill(0x4a2e1a);
+      for (let r = 0; r < (h.h ?? 4) - 1; r++) g.rect(px + 6, py + 10 + r * 16, w - 12, 6).fill(0xbfe0f0);
+      if (h.side) g.rect(h.side > 0 ? px + w - 4 : px, py + hh - 13, 4, 12).fill(0x4a2e1a);
+      else g.rect(px + 12, h.up ? py + 1 : py + hh - 5, 8, 4).fill(0x4a2e1a);
     });
     return root;
   }
@@ -184,7 +202,7 @@ export function buildCity(sheets: Sheets | null) {
 
   /** left column of the river at row y; above and below the map it runs straight on */
   const riverLeft = (y: number) => RIVER_L[Math.min(ROWS - 1, Math.max(0, y))]!;
-  return { cols: COLS, rows: ROWS, walkable, doors, hqDoors, plots, hqPlots, plaza, isRiver, riverLeft, draw, ripples };
+  return { cols: COLS, rows: ROWS, walkable, doors, hqDoors, decorDoors, plots, hqPlots, decorPlots, plaza, isRiver, riverLeft, seats: SEATS, draw, ripples };
 }
 
 /** Water over the river tiles, with sandy banks where it meets the land. */
@@ -222,29 +240,104 @@ function drawBridge(): Graphics {
   return g;
 }
 
-/** Stone paving in a brick pattern with a darker kerb, and its name. */
+/** The park in the city's own tiles: the same grass, pavement, trees, bushes, benches and lamps as the streets, with a pond and flower beds on top. */
+export function drawPark(s: Sheets): Container {
+  const T = TILE, c = new Container(), g = new Graphics();
+  const put = (i: number, x: number, y: number) => {
+    const sp = new Sprite(s.city(i));
+    sp.position.set(x * T, y * T);
+    c.addChild(sp);
+  };
+  const { x: X, y: Y, w: W, h: H } = PLAZA;
+  const row = Y + 5, col = X + 12; // pavement path from the west avenue, and a branch up to the street
+  const onPath = (x: number, y: number) => y === row || (x === col && y < row);
+  const pond = (x: number, y: number) => x >= X + 4 && x < X + 9 && y >= Y + 1 && y < Y + 4;
+  for (let y = Y; y < Y + H; y++) for (let x = X; x < X + W; x++) put(onPath(x, y) ? K.SIDEWALK : K.GRASS[hash(x, y) % K.GRASS.length]!, x, y);
+  for (let y = Y; y < Y + H; y++) for (let x = X; x < X + W; x++) {
+    const h = hash(x, y);
+    if (onPath(x, y) || pond(x, y)) continue;
+    if (y === row + 1 && SEATS.some((s) => s.x === x)) put(K.BENCH, x, y);
+    else if (y === row - 1 && x !== col - 1 && x !== col + 1 && h % 7 === 3) { put(K.LAMP_TOP, x, y - 1); put(K.LAMP_BOTTOM, x, y); }
+    else if (x !== col && Math.abs(y - row) > 1) {
+      const free = y > Y && !onPath(x, y - 1) && !pond(x, y - 1) && y - 1 !== row;
+      if (h % 4 === 0 && free) { put(K.TREE_TOP, x, y - 1); put(K.TREE_BOTTOM, x, y); }
+      else if (h % 5 === 1) put(K.BUSH, x, y);
+    }
+  }
+  // pond in the river's colours, with sandy banks
+  const px = (X + 6.5) * T, py = (Y + 2.5) * T;
+  g.ellipse(px, py, 44, 26).fill(0xd8c088).ellipse(px, py, 41, 23).fill(0x3a8fd0).ellipse(px - 4, py - 3, 28, 12).fill(0x4a9fe0);
+  g.ellipse(px - 14, py - 6, 8, 2).fill({ color: 0xffffff, alpha: 0.35 });
+  g.ellipse(px + 16, py + 6, 4, 2.5).fill(0x4f9a50).circle(px + 17, py + 5, 1.2).fill(0xf0a0c0);
+  for (const [fx, fy] of [[(X + W - 5) * T, (Y + 1) * T], [(X + 2) * T, (Y + H - 2) * T]] as const) {
+    g.rect(fx, fy, 44, 14).fill(0x6a4a30);
+    for (let i = 0; i < 9; i++) g.circle(fx + 4 + i * 4.5, fy + 4 + (i % 2) * 6, 2).fill([0xe84a5a, 0xf0d040, 0xf0f0f0, 0xc070e0][i % 4]!);
+  }
+  c.addChild(g);
+  return c;
+}
+
+/** A park: lawn with a gravel path, a pond, trees, flower beds and benches. No name tag. */
 function drawPlaza(): Container {
   const T = TILE, x = PLAZA.x * T, y = PLAZA.y * T, w = PLAZA.w * T, h = PLAZA.h * T;
-  const g = new Graphics().rect(x, y, w, h).fill(0x8a8274).rect(x + 2, y + 2, w - 4, h - 4).fill(0xc2b8a4);
-  for (let j = 0; j * 8 < h - 4; j++) {
-    g.rect(x + 2, y + 2 + j * 8, w - 4, 1).fill(0xaaa08c);
-    for (let i = (j % 2) * 8; i < w - 4; i += 16) g.rect(x + 2 + i, y + 2 + j * 8, 1, 8).fill(0xaaa08c);
+  const g = new Graphics().rect(x, y, w, h).fill(0xaaa292).rect(x + 4, y + 4, w - 8, h - 8).fill(0x78a455); // stone kerb, then lawn
+  for (let i = 0; i < 90; i++) { // grass flecks
+    const k = hash(i, 7), px = x + 6 + ((k * 7) % (w - 12)), py = y + 6 + ((hash(i, 11) * 3) % (h - 12));
+    g.rect(px, py, 2, 1).fill(i % 2 ? 0x8cb868 : 0x669246);
   }
-  const t = new Text({ text: "Quảng trường", style: LABEL_STYLE, resolution: 2 });
-  t.anchor.set(0.5);
-  t.position.set(x + w / 2, y + 8);
+  // gravel path: along the middle from the west gate, with a branch up to the north gate on the pavement
+  const my = y + h / 2 - 6, bx = x + w * 0.62;
+  g.rect(x, my, w - 4, 12).fill(0xd8c9a0).rect(bx, y, 12, my - y).fill(0xd8c9a0);
+  g.rect(x, my, w - 4, 1).fill(0xb8a880).rect(x, my + 11, w - 4, 1).fill(0xb8a880);
+  for (let i = 0; i < 40; i++) g.rect(x + 4 + ((hash(i, 3) * 5) % (w - 8)), my + 2 + (hash(i, 5) % 8), 1, 1).fill(0xb8a880);
+  // pond above the path
+  const pxc = x + w * 0.3, pyc = y + 34;
+  g.ellipse(pxc, pyc, 46, 24).fill(0x9a8a6a).ellipse(pxc, pyc, 43, 21).fill(0x4a8ec8).ellipse(pxc - 4, pyc - 3, 30, 13).fill(0x5aa0da);
+  g.ellipse(pxc - 14, pyc - 6, 8, 2).fill({ color: 0xffffff, alpha: 0.35 });
+  g.ellipse(pxc + 16, pyc + 6, 4, 2.5).fill(0x4f9a50).circle(pxc + 17, pyc + 5, 1.2).fill(0xf0a0c0); // lily pad
+  // flower beds
+  for (const [fx, fy] of [[x + w - 70, y + 14], [x + 22, y + h - 28]] as const) {
+    g.rect(fx, fy, 44, 14).fill(0x6a4a30);
+    for (let i = 0; i < 9; i++) g.circle(fx + 4 + i * 4.5, fy + 4 + (i % 2) * 6, 2).fill([0xe84a5a, 0xf0d040, 0xf0f0f0, 0xc070e0][i % 4]!);
+  }
+  // benches beside the path, and lamps
+  for (const bxx of [x + 70, x + w * 0.62 - 40]) {
+    g.rect(bxx, my + 14, 18, 5).fill(0x7a4a28).rect(bxx, my + 13, 18, 1).fill(0xa0683a).rect(bxx + 1, my + 19, 2, 2).fill(0x333333).rect(bxx + 15, my + 19, 2, 2).fill(0x333333);
+  }
+  for (const lx of [x + 30, x + w - 30]) g.rect(lx, my - 8, 2, 8).fill(0x2a2a30).circle(lx + 1, my - 9, 3).fill(0xffe9a0);
+  // trees round the edge, off the path and pond
+  for (let i = 0; i < 14; i++) {
+    const tx = x + 14 + ((hash(i, 21) * 11) % (w - 28)), ty = i % 2 ? y + h - 14 - (hash(i, 23) % 8) : y + 12 + (hash(i, 23) % 10);
+    if (Math.abs(tx - pxc) < 52 && ty < pyc + 30) continue;
+    if (ty > my - 6 && ty < my + 18) continue;
+    if (tx > bx - 8 && tx < bx + 20 && ty < my) continue;
+    g.ellipse(tx, ty + 5, 8, 3).fill({ color: 0x000000, alpha: 0.2 }).rect(tx - 1, ty, 3, 6).fill(0x6a4a2a);
+    g.circle(tx, ty - 3, 8).fill(0x3f7a3a).circle(tx - 2, ty - 5, 5).fill(0x58a050);
+  }
+  // iron fence on the kerb with a gate on the west (path) and north (branch) sides; stone pillars at the gates
+  const iron = 0x2a2a30, fence = (x0: number, y0: number, len: number, horiz: boolean) => {
+    if (horiz) g.rect(x0, y0 + 1, len, 1).fill(iron);
+    else g.rect(x0 + 1, y0, 1, len).fill(iron);
+    for (let i = 0; i <= len; i += 8) (horiz ? g.rect(x0 + i, y0, 2, 4) : g.rect(x0, y0 + i, 4, 2)).fill(iron);
+  };
+  const gateN = [bx - 2, bx + 14], gateW = [my - 2, my + 14];
+  fence(x, y, gateN[0]! - x, true); fence(gateN[1]!, y, x + w - gateN[1]!, true); // north
+  fence(x, y + h - 4, w, true); // south
+  fence(x, y, gateW[0]! - y, false); fence(x, gateW[1]!, y + h - gateW[1]!, false); // west
+  fence(x + w - 4, y, h, false); // east
+  for (const [px, py] of [[gateN[0]!, y], [gateN[1]! - 4, y], [x, gateW[0]!], [x, gateW[1]! - 4]] as const) g.rect(px, py, 4, 4).fill(0x8a8274).rect(px, py, 4, 1).fill(0xc2b8a4);
   const c = new Container();
-  c.addChild(g, t);
+  c.addChild(g);
   return c;
 }
 
 /** Building name with a 1-line sign plaque under it. */
 function drawLabel(root: Container, p: Plot, x: number, y: number) {
   const info = districtInfo(p.id);
-  const t = new Text({ text: info.label, style: LABEL_STYLE, resolution: 2 });
+  const t = new Text({ text: info.label, style: LABEL_STYLE, resolution: 4 });
   t.anchor.set(0.5);
   t.position.set(x, y);
-  const sign = new Text({ text: info.sign, style: SIGN_STYLE, resolution: 2 });
+  const sign = new Text({ text: info.sign, style: SIGN_STYLE, resolution: 4 });
   sign.anchor.set(0.5);
   sign.position.set(x, y + 10);
   const bw = Math.ceil(sign.width) + 6, bh = 10;

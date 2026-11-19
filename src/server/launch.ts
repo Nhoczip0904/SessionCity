@@ -103,6 +103,13 @@ export function findOnPath(
   return extra.find((p) => exists(p)) ?? null;
 }
 
+/** A console (cmd) or Explorer at `cwd`. No shell parses the path: it is the child's cwd or a plain argument. */
+export function openHere(cwd: string, what: "cmd" | "folder" | "file", spawn: typeof nodeSpawn): void {
+  const child = what === "cmd" ? spawn("cmd.exe", [], { cwd, detached: true, stdio: "ignore" }) : what === "file" ? spawn("explorer.exe", [`/select,"${cwd}"`], { detached: true, stdio: "ignore", windowsVerbatimArguments: true }) : spawn("explorer.exe", [cwd], { detached: true, stdio: "ignore" }); // "file": cwd is the file path; Explorer wants /select,"path" unescaped, so a path with spaces needs verbatim args
+  child.on("error", () => {});
+  child.unref();
+}
+
 const SCRIPT = fileURLToPath(new URL("../../bin/claude-launch.mjs", import.meta.url));
 const FALLBACK_CLEANUP_MS = 10 * 60_000;
 

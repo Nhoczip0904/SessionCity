@@ -148,9 +148,9 @@ describe("buildingData", () => {
     });
   });
 
-  it("home: the idle sessions, the most recently active first", async () => {
+  it("home: every session in its own room, the most recently active first", async () => {
     const d = await buildingData("home", deps());
-    expect(d).toMatchObject({ id: "home", items: [{ id: "c" }, { id: "b" }] });
+    expect(d).toMatchObject({ id: "home", items: [{ id: "c", status: "idle" }, { id: "d", status: "working" }, { id: "a" }, { id: "b" }] });
   });
 
   it("lab, factory and airport read the sessions' commands", async () => {

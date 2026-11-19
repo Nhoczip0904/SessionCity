@@ -18,7 +18,11 @@ export interface Session {
   worktree?: string;
   /** `git push` / `gh pr create` commands the session has run */
   ships?: { push: number; pr: number };
+  /** links of the PRs this session opened with `gh pr create` */
+  prs?: string[];
   lastActivity: string;
+  /** label of the PR a pr-review-team run is reviewing, until that turn ends */
+  reviewing?: string;
   status: "working" | "waiting" | "idle";
   district: District;
   tokens: Tokens;
@@ -47,7 +51,7 @@ export interface EmployeeDetail extends Employee { report?: string; models: stri
 export type Event =
   | { kind: "prompt"; sessionId: string; at: string; text: string }
   | { kind: "reply"; sessionId: string; at: string; text: string }
-  | { kind: "tool"; sessionId: string; agentId?: string; at: string; name: string; input: unknown; district: District | null }
+  | { kind: "tool"; sessionId: string; agentId?: string; at: string; name: string; input: unknown; district: District | null; toolUseId?: string }
   | { kind: "spawn"; sessionId: string; at: string; toolUseId: string; type: string; description: string; prompt: string }
   | { kind: "report"; sessionId: string; at: string; toolUseId: string; text: string }
   | { kind: "turnEnd"; sessionId: string; agentId?: string; at: string }
@@ -64,9 +68,11 @@ export interface ShelfSkill { id: string; scope: "user" | "project" | "plugin"; 
 export interface Shelf { files: ShelfFile[]; skills: ShelfSkill[] }
 
 /** One open pull request on the review building's board. */
-export interface PrRow { number: number; title: string; url: string | null; /** GitHub login of who opened it */ author: string | null; draft: boolean; review: "approved" | "changes" | "pending" | null; ci: "pass" | "fail" | "pending" | null }
+export interface PrRow { number: number; title: string; url: string | null; /** GitHub login of who opened it */ author: string | null; /** the PR's head branch, to match sessions on it */ branch: string | null; draft: boolean; review: "approved" | "changes" | "pending" | null; ci: "pass" | "fail" | "pending" | null; /** merging into the base branch hits conflicts */ conflict?: boolean }
 /** The open PRs of one repo the sessions work in; `error` when gh could not list them. */
-export interface RepoPrs { repo: string; prs: PrRow[]; error?: string }
+/** One PR a session opened: `state` is null when GitHub could not be asked. */
+export interface PrInfo { url: string; repo: string; number: number; title: string; state: "open" | "merged" | "closed" | null; additions: number; deletions: number }
+export interface RepoPrs { repo: string; prs: PrRow[]; error?: string; /** the repo page on GitHub, when origin is there */ url?: string }
 
 // ---- the departments' boards (/api/building/:id) ----
 /** A command a session ran (test, build, deploy...), as the transcript shows how it ended. */
@@ -84,7 +90,7 @@ export interface Book { path: string; reads: number; project: string }
 export interface Doc { repo: string; path: string; title: string; done: number; total: number; at: string }
 export interface RepoMigrations { repo: string; items: { name: string; at: string }[] }
 export interface InboxItem { id: string; project: string; title?: string; said: string; at: string }
-export interface RestItem { id: string; project: string; title?: string; since: string }
+export interface RestItem { id: string; project: string; title?: string; since: string; status: Session["status"] }
 export type BuildingId = "townhall" | "home" | "site" | "lab" | "factory" | "airport" | "watchtower" | "library" | "design" | "database";
 export type BuildingData =
   | { id: "townhall"; items: InboxItem[] }
@@ -96,3 +102,6 @@ export type BuildingData =
   | { id: "library"; books: Book[] }
   | { id: "design"; docs: Doc[] }
   | { id: "database"; repos: RepoMigrations[] };
+
+/** A background Bash job of a session (run_in_background), as read from its transcript. */
+export interface BgJob { id: string; cmd: string; start: number; end?: number; ok?: boolean }

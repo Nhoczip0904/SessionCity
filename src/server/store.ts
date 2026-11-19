@@ -9,8 +9,9 @@ const MAX = 4096;
 const STEPS = 100;
 const CHAT = 40, CHAT_TEXT = 600;
 const IDLE_MS = 10 * 60_000;
-const HIDE_MS = 24 * 60 * 60_000;
+const HIDE_MS = 7 * 24 * 60 * 60_000;
 const DONE_MS = 30_000;
+const PR_URL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g;
 
 const cut = (s: string) => (s.length > MAX ? s.slice(0, MAX) + "…" : s);
 const zero = (): TokenCounts => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
@@ -36,7 +37,9 @@ export class Store {
   private seen = new Map<string, Set<string>>(); // sessionId -> counted messageIds
   private mayorSteps = new Map<string, ToolStep[]>(); // sessionId -> steps, oldest first
   private skills = new Map<string, Set<string>>(); // sessionId -> Skill tool names used
+  private prCalls = new Set<string>(); // tool_use ids of `gh pr create` calls: their result holds the new PR link
   private lastPrompt = new Map<string, string>();
+  private held = new Set<string>(); // sessions whose mayor ended the turn while a subagent still worked: they wait for the user once it is done
   private chat = new Map<string, ChatLine[]>(); // sessionId -> prompts and replies, oldest first
   private extra = new Map<string, Extra>(); // agentId -> detail-only data
   private dirtyS = new Set<string>();
@@ -123,13 +126,17 @@ export class Store {
           this.lastPrompt.set(s.id, cut(e.text));
           this.say(s.id, { at: e.at, role: "user", text: e.text });
         }
-        s.status = "working"; s.district = "townhall";
+        s.status = "working"; s.district = "townhall"; this.held.delete(s.id);
         break;
       case "reply":
         this.say(s.id, { at: e.at, role: "claude", text: e.text });
         break;
       case "tool": {
         const sk = e.name === "Skill" ? (e.input as { skill?: unknown } | null)?.skill : undefined;
+        if (typeof sk === "string" && sk.includes("pr-review") && !e.agentId) {
+          const args = (e.input as { args?: unknown }).args;
+          s.reviewing = (typeof args === "string" && args.trim().slice(0, 60)) || s.branch || "PR";
+        }
         if (typeof sk === "string" && sk) {
           const set = this.skills.get(s.id) ?? new Set<string>();
           this.skills.set(s.id, set.add(sk));
@@ -143,11 +150,13 @@ export class Store {
         } else {
           steps = this.mayorSteps.get(s.id) ?? [];
           this.mayorSteps.set(s.id, steps);
-          s.status = "working";
+          s.status = "working"; this.held.delete(s.id);
           if (e.district) s.district = e.district;
         }
-        const ship = e.agentId ? null : shipKind(e.name, e.input);
+        const kind = shipKind(e.name, e.input);
+        const ship = e.agentId ? null : kind; // the ship counter is the mayor's own; a subagent's PR still links to the session
         if (ship) { const n = (s.ships ??= { push: 0, pr: 0 }); n[ship]++; }
+        if (kind === "pr" && e.toolUseId) this.prCalls.add(e.toolUseId);
         steps.push(step);
         if (steps.length > STEPS) steps.shift();
         break;
@@ -175,6 +184,12 @@ export class Store {
         break;
       }
       case "report": {
+        if (this.prCalls.has(e.toolUseId)) {
+          const found = e.text.match(PR_URL) ?? [];
+          const have = s.prs ?? [];
+          const fresh = [...new Set(found)].filter((u) => !have.includes(u));
+          if (fresh.length) s.prs = [...have, ...fresh].slice(-20);
+        }
         const emp = [...this.employees.values()].find((x) => x.toolUseId === e.toolUseId && e.toolUseId !== "");
         if (emp) {
           this.extraOf(emp.id).report = cut(e.text);
@@ -184,7 +199,11 @@ export class Store {
       }
       case "turnEnd":
         if (e.agentId) this.finish(this.employee(e.sessionId, e.agentId, e.at), e.at);
-        else { s.status = "waiting"; s.district = "townhall"; }
+        else {
+          s.reviewing = undefined;
+          if (s.employees.some((a) => this.employees.get(a)?.status === "working")) { this.held.add(s.id); s.status = "working"; }
+          else { s.status = "waiting"; s.district = "townhall"; }
+        }
         break;
       case "usage": {
         if (e.messageId !== "") {
@@ -223,6 +242,12 @@ export class Store {
     emp.status = "done"; emp.endedAt = at;
     this.endedAt.set(emp.id, this.now());
     this.dirtyE.add(emp.id);
+    const s = this.sessions.get(emp.sessionId);
+    if (s && this.held.has(s.id) && !s.employees.some((a) => this.employees.get(a)?.status === "working")) {
+      this.held.delete(s.id);
+      s.status = "waiting"; s.district = "townhall";
+      this.dirtyS.add(s.id);
+    }
   }
 
   tick(): void {
@@ -232,7 +257,7 @@ export class Store {
       if (age >= HIDE_MS) {
         for (const a of s.employees) this.dropEmployee(a, false);
         this.sessions.delete(id); this.lastEvent.delete(id); this.dirtyS.delete(id);
-        this.seen.delete(id); this.mayorSteps.delete(id); this.lastPrompt.delete(id); this.chat.delete(id);
+        this.seen.delete(id); this.held.delete(id); this.mayorSteps.delete(id); this.lastPrompt.delete(id); this.chat.delete(id);
         for (const [k, p] of this.pending) if (p.sessionId === id) this.pending.delete(k);
         this.removed.push(id);
       } else if (age >= IDLE_MS && s.status !== "idle") {
